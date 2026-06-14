@@ -1,0 +1,252 @@
+# VParticles Stage 1.1 - Simulation Control Interface
+
+## Overview
+
+The purpose of this stage is to transform the particle sandbox from a static demonstration into a development tool.
+
+While the final VParticles product may eventually become a Blender addon, a standalone application, or another form of software entirely, the development team requires a method of rapidly testing simulation parameters without recompiling the application after every change.
+
+This stage introduces a lightweight graphical interface that allows simulation parameters to be modified in real time.
+
+---
+
+# Why We Are Building a GUI
+
+Without a GUI:
+
+1. Change velocity value in code.
+2. Recompile.
+3. Launch application.
+4. Observe result.
+5. Close application.
+6. Repeat.
+
+This workflow is inefficient and slows experimentation.
+
+With a GUI:
+
+1. Move slider.
+2. Observe result instantly.
+
+The GUI is not being built because the final product requires it.
+
+The GUI is being built because the development process requires it.
+
+Think of it as laboratory equipment rather than part of the final engine.
+
+---
+
+# Design Philosophy
+
+The simulation engine must remain independent from the user interface.
+
+The following architecture is required:
+
+Simulation Settings
+
+↓
+
+Particle System
+
+↓
+
+Renderer
+
+The GUI may modify Simulation Settings, but the Particle System must never directly depend on GUI code.
+
+This separation allows the simulation engine to be reused later in:
+
+* Blender
+* Unreal Engine
+* Unity
+* Standalone Applications
+* Command Line Tools
+
+without modification.
+
+---
+
+# Required Features
+
+The Stage 1.1 interface must contain the following controls.
+
+## Velocity X Slider
+
+Purpose:
+
+Controls horizontal velocity applied to particles.
+
+Range:
+
+-500 to +500
+
+---
+
+## Velocity Y Slider
+
+Purpose:
+
+Controls vertical velocity applied to particles.
+
+Range:
+
+-500 to +500
+
+---
+
+## Pause Button
+
+Purpose:
+
+Temporarily stop particle updates while maintaining rendering.
+
+Expected Behaviour:
+
+When enabled:
+
+* Particles remain visible.
+* Simulation updates stop.
+
+When disabled:
+
+* Simulation resumes normally.
+
+---
+
+## Reset Button
+
+Purpose:
+
+Restore simulation to its initial state.
+
+Expected Behaviour:
+
+* Particle positions return to their spawn positions.
+* Velocities return to default values.
+
+---
+
+## FPS Display
+
+Purpose:
+
+Provide real-time performance information.
+
+Information Displayed:
+
+* Frames Per Second
+* Frame Time (optional)
+
+This will become important during later optimization stages.
+
+---
+
+# New Architecture Components
+
+## SimulationSettings
+
+A new structure shall be introduced.
+
+Example:
+
+```cpp
+struct SimulationSettings
+{
+    float velocityX;
+    float velocityY;
+
+    bool paused;
+};
+```
+
+Purpose:
+
+Centralized storage of simulation parameters.
+
+The GUI edits these values.
+
+The Particle System reads these values.
+
+---
+
+# Responsibilities
+
+## GUI Layer
+
+Responsible For:
+
+* Sliders
+* Buttons
+* Performance Displays
+
+Not Responsible For:
+
+* Particle updates
+* Physics calculations
+* Rendering logic
+
+---
+
+## Particle System
+
+Responsible For:
+
+* Position updates
+* Boundary collisions
+* Future simulation features
+
+Not Responsible For:
+
+* User interaction
+* Window management
+* GUI rendering
+
+---
+
+## Renderer
+
+Responsible For:
+
+* Drawing particles
+* Drawing simulation visuals
+
+Not Responsible For:
+
+* Simulation logic
+
+---
+
+# Definition of Completion
+
+Stage 1.1 is complete when:
+
+✓ Velocity can be modified during runtime.
+
+✓ Simulation can be paused.
+
+✓ Simulation can be reset.
+
+✓ FPS is displayed.
+
+✓ No recompilation is required to test velocity changes.
+
+✓ Particle System remains independent from GUI implementation.
+
+---
+
+# Future Impact
+
+This stage establishes the foundation for future controls such as:
+
+* Brownian Strength
+* Gravity
+* Drag
+* Spawn Rate
+* Particle Count
+* Attraction Forces
+* Repulsion Forces
+* GPU Debug Information
+
+The interface created during this stage should be considered a development console rather than a production user interface.
+
+Its primary objective is to accelerate experimentation and validation of simulation features during development.

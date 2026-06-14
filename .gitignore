@@ -1,0 +1,15 @@
+.vs/
+x64/
+VParticles/x64/
+
+*.user
+*.suo
+*.VC.db
+*.opendb
+
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.log
