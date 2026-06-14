@@ -14,6 +14,7 @@ public:
     void Create(int count, const SimulationSettings& settings);
 
     void Reset(int count, const SimulationSettings& settings);
+    void Resize(int count, const SimulationSettings& settings);
 
     void SetVelocity(float velocityX, float velocityY);
 

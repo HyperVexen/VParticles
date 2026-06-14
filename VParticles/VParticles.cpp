@@ -1,6 +1,8 @@
 #include <SFML/Graphics.hpp>
 #include <imgui-SFML.h>
 #include <optional>
+#include <iostream>
+#include <string>
 
 #include "ParticleRenderer.h"
 #include "ParticleSystem.h"
@@ -8,8 +10,61 @@
 #include "SimulationGui.h"
 #include "SimulationSettings.h"
 
-int main()
+void RunConsoleMode(ParticleSystem& particleSystem)
 {
+    sf::Clock clock;
+    float timeAccumulator = 0.0f;
+    int frameCount = 0;
+
+    std::cout << "Starting console simulation mode..." << std::endl;
+
+    while (true)
+    {
+        sf::Time frameTime = clock.restart();
+        float dt = frameTime.asSeconds();
+
+        particleSystem.Update(dt, 1280.0f, 720.0f);
+
+        timeAccumulator += dt;
+        frameCount++;
+
+        if (timeAccumulator >= 1.0f)
+        {
+            float avgFps = static_cast<float>(frameCount) / timeAccumulator;
+            std::cout << "Average FPS: " << avgFps 
+                      << " | Particles: " << particleSystem.particles.size() 
+                      << std::endl;
+            timeAccumulator = 0.0f;
+            frameCount = 0;
+        }
+    }
+}
+
+int main(int argc, char** argv)
+{
+    bool startInConsoleMode = false;
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::string(argv[i]) == "--console")
+        {
+            startInConsoleMode = true;
+        }
+    }
+
+    SimulationSettings settings;
+    PerformanceStats stats;
+
+    ParticleSystem particleSystem;
+    ParticleRenderer particleRenderer;
+    SimulationGui simulationGui;
+
+    particleSystem.Create(SimulationDefaults::ParticleCount, settings);
+
+    if (startInConsoleMode)
+    {
+        RunConsoleMode(particleSystem);
+        return 0;
+    }
     sf::RenderWindow window(
         sf::VideoMode({ 1280, 720 }),
         "VParticles"
@@ -64,16 +119,11 @@ int main()
     style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.19f, 0.32f, 0.48f, 1.0f);
     style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.39f, 0.59f, 1.0f);
 
-    SimulationSettings settings;
-    PerformanceStats stats;
-
-    ParticleSystem particleSystem;
-    ParticleRenderer particleRenderer;
-    SimulationGui simulationGui;
-
-    particleSystem.Create(SimulationDefaults::ParticleCount, settings);
+    // Removed local variables moved to top of main
 
     sf::Clock clock;
+    float timeAccumulator = 0.0f;
+    int frameCount = 0;
 
     while (window.isOpen())
     {
@@ -82,6 +132,14 @@ int main()
 
         stats.frameTimeMs = dt * 1000.0f;
         stats.fps = dt > 0.0f ? 1.0f / dt : 0.0f;
+
+        timeAccumulator += dt;
+        frameCount++;
+        if (timeAccumulator >= 0.5f) {
+            stats.averageFps = static_cast<float>(frameCount) / timeAccumulator;
+            timeAccumulator = 0.0f;
+            frameCount = 0;
+        }
 
         while (const std::optional event = window.pollEvent())
         {
@@ -97,17 +155,31 @@ int main()
 
         SimulationGuiResult guiResult = simulationGui.Draw(settings, stats);
 
+        if (guiResult.switchToConsoleRequested)
+        {
+            window.close();
+            RunConsoleMode(particleSystem);
+            return 0;
+        }
+
         if (guiResult.resetRequested)
         {
             settings = SimulationSettings();
-            particleSystem.Reset(SimulationDefaults::ParticleCount, settings);
+            particleSystem.Reset(settings.particleCount, settings);
         }
-        else if (guiResult.velocityChanged)
+        else 
         {
-            particleSystem.SetVelocity(
-                settings.velocityX,
-                settings.velocityY
-            );
+            if (guiResult.particleCountChanged)
+            {
+                particleSystem.Resize(settings.particleCount, settings);
+            }
+            if (guiResult.velocityChanged)
+            {
+                particleSystem.SetVelocity(
+                    settings.velocityX,
+                    settings.velocityY
+                );
+            }
         }
 
         auto size = window.getSize();

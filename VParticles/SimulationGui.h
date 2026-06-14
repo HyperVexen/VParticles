@@ -7,6 +7,8 @@ struct SimulationGuiResult
 {
     bool resetRequested = false;
     bool velocityChanged = false;
+    bool particleCountChanged = false;
+    bool switchToConsoleRequested = false;
 };
 
 class SimulationGui

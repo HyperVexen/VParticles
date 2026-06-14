@@ -17,6 +17,7 @@ struct SimulationSettings
 {
     float velocityX = SimulationDefaults::VelocityX;
     float velocityY = SimulationDefaults::VelocityY;
+    int particleCount = SimulationDefaults::ParticleCount;
 
     bool paused = false;
 };

@@ -32,12 +32,25 @@ SimulationGuiResult SimulationGui::Draw(
         500.0f
     );
 
+    ImGui::SetNextItemWidth(340.0f);
+    if (ImGui::InputInt("Particle Count", &settings.particleCount))
+    {
+        if (settings.particleCount < 0) settings.particleCount = 0;
+        result.particleCountChanged = true;
+    }
+
     ImGui::Checkbox("Paused", &settings.paused);
 
     result.resetRequested = ImGui::Button("Reset");
 
+    ImGui::SameLine();
+    result.switchToConsoleRequested = ImGui::Button("Switch to Console");
+
     std::ostringstream fpsValue;
     fpsValue << std::fixed << std::setprecision(1) << stats.fps;
+
+    std::ostringstream avgFpsValue;
+    avgFpsValue << std::fixed << std::setprecision(1) << stats.averageFps;
 
     std::ostringstream frameTimeValue;
     frameTimeValue << std::fixed << std::setprecision(2) << stats.frameTimeMs
@@ -46,11 +59,16 @@ SimulationGuiResult SimulationGui::Draw(
     ImGui::Separator();
 
     const std::string fpsValueText = fpsValue.str();
+    const std::string avgFpsValueText = avgFpsValue.str();
     const std::string frameTimeValueText = frameTimeValue.str();
 
     ImGui::TextUnformatted("FPS");
     ImGui::SameLine(240.0f);
     ImGui::TextUnformatted(fpsValueText.c_str());
+
+    ImGui::TextUnformatted("Average FPS");
+    ImGui::SameLine(240.0f);
+    ImGui::TextUnformatted(avgFpsValueText.c_str());
 
     ImGui::TextUnformatted("Frame Time");
     ImGui::SameLine(240.0f);

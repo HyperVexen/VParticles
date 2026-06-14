@@ -30,6 +30,28 @@ void ParticleSystem::Reset(int count, const SimulationSettings& settings)
     Create(count, settings);
 }
 
+void ParticleSystem::Resize(int count, const SimulationSettings& settings)
+{
+    if (count < 0) count = 0;
+    if (count > static_cast<int>(particles.size()))
+    {
+        int toAdd = count - static_cast<int>(particles.size());
+        for (int i = 0; i < toAdd; i++)
+        {
+            Particle p;
+            p.x = SimulationDefaults::SpawnX;
+            p.y = SimulationDefaults::SpawnY;
+            p.vx = settings.velocityX;
+            p.vy = settings.velocityY;
+            particles.push_back(p);
+        }
+    }
+    else if (count < static_cast<int>(particles.size()))
+    {
+        particles.resize(count);
+    }
+}
+
 void ParticleSystem::SetVelocity(float velocityX, float velocityY)
 {
     for (auto& p : particles)
