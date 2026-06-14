@@ -13,3 +13,4 @@ VParticles/x64/
 *.exe
 *.dll
 *.log
+imgui.ini

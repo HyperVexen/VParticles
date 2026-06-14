@@ -20,7 +20,49 @@ int main()
         return 1;
     }
 
-    ImGui::GetIO().Fonts->AddFontDefault();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+
+    constexpr float uiFontSize = 22.0f;
+
+    ImFontConfig fontConfig;
+    fontConfig.SizePixels = uiFontSize;
+
+    ImFont* uiFont = io.Fonts->AddFontFromFileTTF(
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        uiFontSize,
+        &fontConfig,
+        io.Fonts->GetGlyphRangesDefault()
+    );
+
+    if (uiFont == nullptr)
+    {
+        uiFont = io.Fonts->AddFontDefaultVector(&fontConfig);
+    }
+
+    ImFontBaked* bakedFont = uiFont->GetFontBaked(uiFontSize);
+    const ImWchar* ranges = io.Fonts->GetGlyphRangesDefault();
+
+    for (; ranges[0] != 0; ranges += 2)
+    {
+        for (unsigned int codepoint = ranges[0]; codepoint <= ranges[1]; ++codepoint)
+        {
+            bakedFont->FindGlyph(static_cast<ImWchar>(codepoint));
+        }
+    }
+
+    uiFont->Flags |= ImFontFlags_LockBakedSizes;
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.FontScaleMain = 1.0f;
+    style.ScaleAllSizes(1.25f);
+    style.Colors[ImGuiCol_Text] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.045f, 0.055f, 1.0f);
+    style.Colors[ImGuiCol_TitleBg] = ImVec4(0.12f, 0.22f, 0.36f, 1.0f);
+    style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.18f, 0.33f, 0.54f, 1.0f);
+    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.13f, 0.22f, 0.34f, 1.0f);
+    style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.19f, 0.32f, 0.48f, 1.0f);
+    style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.39f, 0.59f, 1.0f);
 
     SimulationSettings settings;
     PerformanceStats stats;
