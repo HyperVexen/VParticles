@@ -20,6 +20,8 @@ int main()
         return 1;
     }
 
+    ImGui::GetIO().Fonts->AddFontDefault();
+
     SimulationSettings settings;
     PerformanceStats stats;
 
