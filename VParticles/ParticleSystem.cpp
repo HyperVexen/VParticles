@@ -2,19 +2,40 @@
 
 void ParticleSystem::Create(int count)
 {
+    SimulationSettings settings;
+
+    Create(count, settings);
+}
+
+void ParticleSystem::Create(int count, const SimulationSettings& settings)
+{
     particles.clear();
 
     for (int i = 0; i < count; i++)
     {
         Particle p;
 
-        p.x = 400.0f;
-        p.y = 300.0f;
+        p.x = SimulationDefaults::SpawnX;
+        p.y = SimulationDefaults::SpawnY;
 
-        p.vx = 100.0f;
-        p.vy = 80.0f;
+        p.vx = settings.velocityX;
+        p.vy = settings.velocityY;
 
         particles.push_back(p);
+    }
+}
+
+void ParticleSystem::Reset(int count, const SimulationSettings& settings)
+{
+    Create(count, settings);
+}
+
+void ParticleSystem::SetVelocity(float velocityX, float velocityY)
+{
+    for (auto& p : particles)
+    {
+        p.vx = velocityX;
+        p.vy = velocityY;
     }
 }
 
