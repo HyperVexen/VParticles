@@ -1,0 +1,24 @@
+# ninja log v7
+18	343	8032473650049732	CMakeFiles/VParticles.dir/VParticles/GpuMonitor.cpp.obj	289b0e21e867aec3
+57	1954	8032473650495991	CMakeFiles/VParticles.dir/VParticles/SimulationGui.cpp.obj	b532e9a240471944
+41	4019	8032473650332908	CMakeFiles/VParticles.dir/VParticles/ParticleRenderer.cpp.obj	e8f197199554544d
+65	4480	8032473650576710	CMakeFiles/VParticles.dir/VParticles/VParticles.cpp.obj	b8dc920cfbb82520
+26	4627	8032473650167280	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cpp.obj	64f35278c78026ec
+33	8538	8032473650255754	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cu.obj	5cfc116ccf877594
+76	4242	8032475202231361	CMakeFiles/VParticles.dir/VParticles/ParticleRenderer.cpp.obj	e8f197199554544d
+69	4645	8032475202146859	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cu.obj	5cfc116ccf877594
+54	4778	8032475201903638	CMakeFiles/VParticles.dir/VParticles/Benchmark.cpp.obj	92c1a77117a4010d
+92	5047	8032475202394100	CMakeFiles/VParticles.dir/VParticles/VParticles.cpp.obj	b8dc920cfbb82520
+62	5156	8032475202081664	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cpp.obj	64f35278c78026ec
+33	20396	8032476146612958	CMakeFiles/VParticles.dir/VParticles/ParticleSystem.cu.obj	2824809af78412c0
+20411	21917	8032476350385038	VParticles.exe	c99b825ccd5d69ee
+99	5029	8032486328251356	CMakeFiles/VParticles.dir/VParticles/Benchmark.cpp.obj	92c1a77117a4010d
+107	5353	8032486328408758	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cpp.obj	64f35278c78026ec
+117	5387	8032486328490764	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cu.obj	5cfc116ccf877594
+130	7198	8032486328639853	CMakeFiles/VParticles.dir/VParticles/ParticleSystem.cu.obj	2824809af78412c0
+74	3628	8032487381493972	CMakeFiles/VParticles.dir/VParticles/ParticleRenderer.cpp.obj	e8f197199554544d
+60	3921	8032487381325119	CMakeFiles/VParticles.dir/VParticles/Benchmark.cpp.obj	92c1a77117a4010d
+88	3932	8032487381628331	CMakeFiles/VParticles.dir/VParticles/VParticles.cpp.obj	b8dc920cfbb82520
+68	4082	8032487381378619	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cpp.obj	64f35278c78026ec
+81	5724	8032487381563983	CMakeFiles/VParticles.dir/VParticles/ParticleSystem.cu.obj	2824809af78412c0
+5725	6847	8032487437927120	VParticles.exe	c99b825ccd5d69ee

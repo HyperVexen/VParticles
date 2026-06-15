@@ -5,6 +5,14 @@
 #include <sstream>
 #include <string>
 
+static void SetGradient(SimulationSettings& settings, CudaColor c0, CudaColor c1, CudaColor c2, CudaColor c3)
+{
+    settings.colorGradient[0] = c0;
+    settings.colorGradient[1] = c1;
+    settings.colorGradient[2] = c2;
+    settings.colorGradient[3] = c3;
+}
+
 static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
 {
     settings.activePreset = preset;
@@ -22,7 +30,7 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
     settings.velocityVarianceY = 0.0f;
     settings.sizeStart = 1.0f;
     settings.sizeEnd = 1.0f;
-    settings.colorGradient = { sf::Color::White, sf::Color::White, sf::Color::White, sf::Color::White };
+    SetGradient(settings, CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255));
     
     switch (preset)
     {
@@ -38,7 +46,7 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
         settings.baseSize = 2.0f;
         settings.velocityY = 500.0f;
         settings.particleLifetime = 1.5f;
-        settings.colorGradient = { sf::Color(200, 200, 255, 150), sf::Color(200, 200, 255, 150), sf::Color(200, 200, 255, 150), sf::Color(200, 200, 255, 0) };
+        SetGradient(settings, CudaColor(200, 200, 255, 150), CudaColor(200, 200, 255, 150), CudaColor(200, 200, 255, 150), CudaColor(200, 200, 255, 0));
         break;
     case ArtistPreset::Snow:
         settings.shape = EmitterShape::Box;
@@ -54,7 +62,7 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
         settings.windX = 100.0f;
         settings.velocityVarianceX = 50.0f;
         settings.particleLifetime = 5.0f;
-        settings.colorGradient = { sf::Color::White, sf::Color::White, sf::Color::White, sf::Color(255, 255, 255, 0) };
+        SetGradient(settings, CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 0));
         break;
     case ArtistPreset::Smoke:
         settings.shape = EmitterShape::Point;
@@ -69,7 +77,7 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
         settings.particleLifetime = 4.0f;
         settings.velocityVarianceX = 30.0f;
         settings.velocityVarianceY = 30.0f;
-        settings.colorGradient = { sf::Color(100, 100, 100, 200), sf::Color(80, 80, 80, 150), sf::Color(50, 50, 50, 50), sf::Color(0, 0, 0, 0) };
+        SetGradient(settings, CudaColor(100, 100, 100, 200), CudaColor(80, 80, 80, 150), CudaColor(50, 50, 50, 50), CudaColor(0, 0, 0, 0));
         break;
     case ArtistPreset::Dust:
         settings.shape = EmitterShape::Box;
@@ -84,7 +92,7 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
         settings.particleLifetime = 8.0f;
         settings.velocityVarianceX = 20.0f;
         settings.velocityVarianceY = 20.0f;
-        settings.colorGradient = { sf::Color(200, 180, 150, 0), sf::Color(200, 180, 150, 100), sf::Color(200, 180, 150, 100), sf::Color(200, 180, 150, 0) };
+        SetGradient(settings, CudaColor(200, 180, 150, 0), CudaColor(200, 180, 150, 100), CudaColor(200, 180, 150, 100), CudaColor(200, 180, 150, 0));
         break;
     case ArtistPreset::Sparks:
         settings.shape = EmitterShape::Point;
@@ -100,7 +108,7 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
         settings.velocityVarianceX = 400.0f;
         settings.velocityVarianceY = 200.0f;
         settings.particleLifetime = 1.5f;
-        settings.colorGradient = { sf::Color::White, sf::Color::Yellow, sf::Color::Red, sf::Color(50, 0, 0, 0) };
+        SetGradient(settings, CudaColor(255, 255, 255, 255), CudaColor(255, 255, 0, 255), CudaColor(255, 0, 0, 255), CudaColor(50, 0, 0, 0));
         break;
     case ArtistPreset::Custom:
     default:
@@ -170,6 +178,8 @@ SimulationGuiResult SimulationGui::Draw(
         DrawPropertyLabel("Playback");
         ImGui::Checkbox("Paused", &settings.paused);
         EndPropertyControl();
+
+        // Compute Mode combo removed as it's now GPU-only
         
         EndPropertiesTable();
     }
@@ -368,25 +378,25 @@ SimulationGuiResult SimulationGui::Draw(
             float c0[4] = { settings.colorGradient[0].r/255.f, settings.colorGradient[0].g/255.f, settings.colorGradient[0].b/255.f, settings.colorGradient[0].a/255.f };
             DrawPropertyLabel("Stop 1");
             if (ImGui::ColorEdit4("##Stop1", c0, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar))
-                settings.colorGradient[0] = sf::Color(static_cast<std::uint8_t>(c0[0]*255), static_cast<std::uint8_t>(c0[1]*255), static_cast<std::uint8_t>(c0[2]*255), static_cast<std::uint8_t>(c0[3]*255));
+                settings.colorGradient[0] = CudaColor(static_cast<std::uint8_t>(c0[0]*255), static_cast<std::uint8_t>(c0[1]*255), static_cast<std::uint8_t>(c0[2]*255), static_cast<std::uint8_t>(c0[3]*255));
             EndPropertyControl();
                 
             float c1[4] = { settings.colorGradient[1].r/255.f, settings.colorGradient[1].g/255.f, settings.colorGradient[1].b/255.f, settings.colorGradient[1].a/255.f };
             DrawPropertyLabel("Stop 2");
             if (ImGui::ColorEdit4("##Stop2", c1, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar))
-                settings.colorGradient[1] = sf::Color(static_cast<std::uint8_t>(c1[0]*255), static_cast<std::uint8_t>(c1[1]*255), static_cast<std::uint8_t>(c1[2]*255), static_cast<std::uint8_t>(c1[3]*255));
+                settings.colorGradient[1] = CudaColor(static_cast<std::uint8_t>(c1[0]*255), static_cast<std::uint8_t>(c1[1]*255), static_cast<std::uint8_t>(c1[2]*255), static_cast<std::uint8_t>(c1[3]*255));
             EndPropertyControl();
 
             float c2[4] = { settings.colorGradient[2].r/255.f, settings.colorGradient[2].g/255.f, settings.colorGradient[2].b/255.f, settings.colorGradient[2].a/255.f };
             DrawPropertyLabel("Stop 3");
             if (ImGui::ColorEdit4("##Stop3", c2, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar))
-                settings.colorGradient[2] = sf::Color(static_cast<std::uint8_t>(c2[0]*255), static_cast<std::uint8_t>(c2[1]*255), static_cast<std::uint8_t>(c2[2]*255), static_cast<std::uint8_t>(c2[3]*255));
+                settings.colorGradient[2] = CudaColor(static_cast<std::uint8_t>(c2[0]*255), static_cast<std::uint8_t>(c2[1]*255), static_cast<std::uint8_t>(c2[2]*255), static_cast<std::uint8_t>(c2[3]*255));
             EndPropertyControl();
 
             float c3[4] = { settings.colorGradient[3].r/255.f, settings.colorGradient[3].g/255.f, settings.colorGradient[3].b/255.f, settings.colorGradient[3].a/255.f };
             DrawPropertyLabel("Stop 4");
             if (ImGui::ColorEdit4("##Stop4", c3, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar))
-                settings.colorGradient[3] = sf::Color(static_cast<std::uint8_t>(c3[0]*255), static_cast<std::uint8_t>(c3[1]*255), static_cast<std::uint8_t>(c3[2]*255), static_cast<std::uint8_t>(c3[3]*255));
+                settings.colorGradient[3] = CudaColor(static_cast<std::uint8_t>(c3[0]*255), static_cast<std::uint8_t>(c3[1]*255), static_cast<std::uint8_t>(c3[2]*255), static_cast<std::uint8_t>(c3[3]*255));
             EndPropertyControl();
             
             EndPropertiesTable();
@@ -424,6 +434,51 @@ SimulationGuiResult SimulationGui::Draw(
             EndPropertyControl();
 
             EndPropertiesTable();
+        }
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("-- GPU (NVIDIA) --");
+        ImGui::Spacing();
+
+        // GPU Utilization bar
+        {
+            float util = static_cast<float>(stats.gpuUtilPercent) / 100.0f;
+            ImVec4 utilColor = (util > 0.85f)
+                ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f)
+                : (util > 0.5f ? ImVec4(1.0f, 0.8f, 0.1f, 1.0f) : ImVec4(0.3f, 0.9f, 0.4f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, utilColor);
+            char utilLabel[32];
+            snprintf(utilLabel, sizeof(utilLabel), "GPU  %u%%", stats.gpuUtilPercent);
+            ImGui::ProgressBar(util, ImVec2(-1.0f, 0.0f), utilLabel);
+            ImGui::PopStyleColor();
+        }
+
+        // VRAM bar
+        {
+            float vramFrac = (stats.gpuMemTotalMb > 0)
+                ? static_cast<float>(stats.gpuMemUsedMb) / static_cast<float>(stats.gpuMemTotalMb)
+                : 0.0f;
+            ImVec4 vramColor = (vramFrac > 0.85f)
+                ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f)
+                : ImVec4(0.25f, 0.55f, 1.0f, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, vramColor);
+            char vramLabel[48];
+            snprintf(vramLabel, sizeof(vramLabel), "VRAM %u / %u MB", stats.gpuMemUsedMb, stats.gpuMemTotalMb);
+            ImGui::ProgressBar(vramFrac, ImVec2(-1.0f, 0.0f), vramLabel);
+            ImGui::PopStyleColor();
+        }
+
+        // Temperature
+        {
+            float tempFrac = stats.gpuTempC / 100.0f;
+            ImVec4 tempColor = (stats.gpuTempC > 85.0f)
+                ? ImVec4(1.0f, 0.2f, 0.2f, 1.0f)
+                : (stats.gpuTempC > 70.0f ? ImVec4(1.0f, 0.7f, 0.0f, 1.0f) : ImVec4(0.3f, 0.7f, 1.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, tempColor);
+            char tempLabel[32];
+            snprintf(tempLabel, sizeof(tempLabel), "Temp %.0f C", stats.gpuTempC);
+            ImGui::ProgressBar(tempFrac, ImVec2(-1.0f, 0.0f), tempLabel);
+            ImGui::PopStyleColor();
         }
     }
 

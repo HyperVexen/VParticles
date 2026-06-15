@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SFML/Graphics/Color.hpp>
+#include "CudaTypes.h"
 #include <array>
 #include <cstdint>
 
@@ -19,6 +19,11 @@ enum class ArtistPreset
     Smoke,
     Dust,
     Sparks
+};
+
+enum class ComputeMode
+{
+    GPU     // GPU Native
 };
 
 struct SimulationSettings
@@ -73,12 +78,13 @@ struct SimulationSettings
 
     // Color
     float colorRandomness = 0.0f;
-    std::array<sf::Color, 4> colorGradient = {
-        sf::Color::White,
-        sf::Color::White,
-        sf::Color::White,
-        sf::Color::White
+    CudaColor colorGradient[4] = {
+        CudaColor(255, 255, 255, 255),
+        CudaColor(255, 255, 255, 255),
+        CudaColor(255, 255, 255, 255),
+        CudaColor(255, 255, 255, 255)
     };
 
     ArtistPreset activePreset = ArtistPreset::Custom;
+    ComputeMode  computeMode  = ComputeMode::GPU;
 };

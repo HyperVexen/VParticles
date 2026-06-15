@@ -11,17 +11,22 @@ void ParticleRenderer::Draw(
     sf::RenderWindow& window,
     const ParticleSystem& particleSystem)
 {
-    std::size_t vertexCount = particleSystem.activeCount * 6;
-    
-    if (m_vertices.getVertexCount() != vertexCount)
+    // Count how many we actually added to the vertex array
+    std::size_t validCount = 0;
+
+    std::size_t maxVertexCount = particleSystem.maxParticles * 6;
+    if (m_vertices.getVertexCount() < maxVertexCount)
     {
-        m_vertices.resize(vertexCount);
+        m_vertices.resize(maxVertexCount);
     }
 
-    for (std::size_t i = 0; i < particleSystem.activeCount; ++i)
+    for (std::size_t i = 0; i < particleSystem.maxParticles; ++i)
     {
         const Particle& p = particleSystem.particles[i];
-        std::size_t vertexIndex = i * 6;
+        if (p.lifetime <= 0.0f) continue;
+        
+        std::size_t vertexIndex = validCount * 6;
+        validCount++;
         
         float halfSize = p.size * 0.5f;
         
@@ -63,6 +68,9 @@ void ParticleRenderer::Draw(
             m_vertices[vertexIndex + j].color = color;
         }
     }
+
+    // Shrink if needed to the exact valid count drawn
+    m_vertices.resize(validCount * 6);
 
     window.draw(m_vertices);
 }

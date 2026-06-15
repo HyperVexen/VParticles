@@ -16,4 +16,10 @@ struct PerformanceStats
     float fps = 0.0f;
     float averageFps = 0.0f;
     float frameTimeMs = 0.0f;
+
+    // GPU metrics (populated by GpuMonitor)
+    uint32_t gpuUtilPercent = 0;
+    uint32_t gpuMemUsedMb   = 0;
+    uint32_t gpuMemTotalMb  = 0;
+    float    gpuTempC       = 0.0f;
 };

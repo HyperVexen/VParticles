@@ -6,13 +6,30 @@
 
 #include <random>
 #include "PerformanceStats.h"
+#include <cuda_runtime.h>
+#include <curand.h>
 
 class ParticleSystem
 {
 public:
 
-    std::vector<Particle> particles;
-    std::size_t activeCount = 0;
+    Particle* particles = nullptr;
+    cudaStream_t m_stream = nullptr;
+    int* d_deadIndices = nullptr;
+    int* d_deadCount = nullptr;
+    int h_deadCount = 0;
+    
+    Particle* h_stagingBuffer = nullptr;
+    
+    cudaEvent_t m_frameDone = nullptr;
+    curandGenerator_t m_curandGen = nullptr;
+    float* d_randBuffer = nullptr;
+    
+    std::size_t maxParticles = 0;
+
+    std::size_t GetActiveCount() const { return maxParticles - h_deadCount; }
+
+    ~ParticleSystem();
 
     void InitializePool(std::size_t maxParticles);
 

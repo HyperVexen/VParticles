@@ -1,0 +1,391 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "VParticles.exe"
+		},
+		{
+			"path" : "VParticles.pdb"
+		}
+	],
+	"backtrace" : 2,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"_add_executable",
+			"add_executable",
+			"target_link_directories",
+			"target_link_libraries",
+			"add_custom_command",
+			"target_compile_options",
+			"include_directories"
+		],
+		"files" : 
+		[
+			"C:/Users/death/Desktop/Important folder/libraries/vcpkg/scripts/buildsystems/vcpkg.cmake",
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 19,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 614,
+				"parent" : 1
+			},
+			{
+				"command" : 2,
+				"file" : 1,
+				"line" : 29,
+				"parent" : 0
+			},
+			{
+				"command" : 3,
+				"file" : 1,
+				"line" : 35,
+				"parent" : 0
+			},
+			{
+				"command" : 4,
+				"file" : 0,
+				"line" : 628,
+				"parent" : 1
+			},
+			{
+				"command" : 5,
+				"file" : 1,
+				"line" : 22,
+				"parent" : 0
+			},
+			{
+				"command" : 6,
+				"file" : 1,
+				"line" : 10,
+				"parent" : 0
+			}
+		]
+	},
+	"codemodelVersion" : 
+	{
+		"major" : 2,
+		"minor" : 10
+	},
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "/DWIN32 /D_WINDOWS /GR /EHsc /Zi /Ob0 /Od /RTC1 -std:c++20 -MDd"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "/Zc:preprocessor"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 7,
+					"path" : "C:/Users/death/Desktop/Important folder/LIBRARIES/VCPKG/installed/x64-windows/include"
+				},
+				{
+					"backtrace" : 7,
+					"path" : "D:/CUDA/include"
+				}
+			],
+			"language" : "CXX",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					2
+				],
+				"standard" : "20"
+			},
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				4,
+				6,
+				7
+			]
+		},
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-D_WINDOWS -Xcompiler=\" /GR /EHsc\" -Xcompiler=\" -Zi -Ob0 -Od /RTC1\" -std=c++17 -arch=native -Xcompiler=-MDd"
+				},
+				{
+					"backtrace" : 6,
+					"fragment" : "-Xcompiler=/Zc:preprocessor"
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 7,
+					"path" : "C:/Users/death/Desktop/Important folder/LIBRARIES/VCPKG/installed/x64-windows/include"
+				},
+				{
+					"backtrace" : 7,
+					"path" : "D:/CUDA/include"
+				}
+			],
+			"language" : "CUDA",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					2
+				],
+				"standard" : "17"
+			},
+			"sourceIndexes" : 
+			[
+				3,
+				5
+			]
+		}
+	],
+	"id" : "VParticles::@6890427a1f51a3e7e1df",
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "/DWIN32 /D_WINDOWS /GR /EHsc /Zi /Ob0 /Od /RTC1 -MDd",
+				"role" : "flags"
+			},
+			{
+				"fragment" : "/machine:x64 /debug /INCREMENTAL",
+				"role" : "flags"
+			},
+			{
+				"fragment" : "/subsystem:console",
+				"role" : "flags"
+			},
+			{
+				"backtrace" : 3,
+				"fragment" : "-LIBPATH:C:\\Users\\death\\Desktop\\IMPORT~1\\LIBRAR~1\\VCPKG\\INSTAL~1\\X64-WI~1\\debug\\lib",
+				"role" : "libraryPath"
+			},
+			{
+				"backtrace" : 3,
+				"fragment" : "-LIBPATH:D:\\CUDA\\lib\\x64",
+				"role" : "libraryPath"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "sfml-graphics-d.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "sfml-window-d.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "sfml-system-d.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "ImGui-SFML.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "imguid.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "glew32d.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "OpenGL32.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "cudadevrt.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "cudart.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "curand.lib",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 4,
+				"fragment" : "nvml.lib",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "cudadevrt.lib",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "cudart.lib",
+				"role" : "libraries"
+			},
+			{
+				"fragment" : "kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib",
+				"role" : "libraries"
+			}
+		],
+		"language" : "CXX"
+	},
+	"linkLibraries" : 
+	[
+		{
+			"backtrace" : 4,
+			"fragment" : "sfml-graphics-d"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "sfml-window-d"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "sfml-system-d"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "ImGui-SFML"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "imguid"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "glew32d"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "OpenGL32"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "cudadevrt"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "cudart"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "curand"
+		},
+		{
+			"backtrace" : 4,
+			"fragment" : "nvml"
+		}
+	],
+	"name" : "VParticles",
+	"nameOnDisk" : "VParticles.exe",
+	"orderDependencies" : 
+	[
+		{
+			"backtrace" : 5,
+			"id" : "VParticles::@6890427a1f51a3e7e1df"
+		}
+	],
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "VParticles/Benchmark.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "VParticles/GpuMonitor.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "VParticles/GpuRenderer.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 1,
+			"path" : "VParticles/GpuRenderer.cu",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "VParticles/ParticleRenderer.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 1,
+			"path" : "VParticles/ParticleSystem.cu",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "VParticles/SimulationGui.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "VParticles/VParticles.cpp",
+			"sourceGroupIndex" : 0
+		}
+	],
+	"type" : "EXECUTABLE"
+}

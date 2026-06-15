@@ -4,11 +4,14 @@
 #include <iostream>
 #include <string>
 
-#include "ParticleRenderer.h"
+#include "GpuMonitor.h"
+#include "GpuRenderer.h"
+
 #include "ParticleSystem.h"
 #include "PerformanceStats.h"
 #include "SimulationGui.h"
 #include "SimulationSettings.h"
+#include "Benchmark.h"
 
 void RunConsoleMode(ParticleSystem& particleSystem)
 {
@@ -34,7 +37,7 @@ void RunConsoleMode(ParticleSystem& particleSystem)
         {
             float avgFps = static_cast<float>(frameCount) / timeAccumulator;
             std::cout << "Average FPS: " << avgFps 
-                      << " | Particles: " << particleSystem.activeCount 
+                      << " | Particles: " << particleSystem.GetActiveCount() 
                       << std::endl;
             timeAccumulator = 0.0f;
             frameCount = 0;
@@ -45,11 +48,16 @@ void RunConsoleMode(ParticleSystem& particleSystem)
 int main(int argc, char** argv)
 {
     bool startInConsoleMode = false;
+    bool runBenchmark = false;
     for (int i = 1; i < argc; ++i)
     {
         if (std::string(argv[i]) == "--console")
         {
             startInConsoleMode = true;
+        }
+        else if (std::string(argv[i]) == "--benchmark")
+        {
+            runBenchmark = true;
         }
     }
 
@@ -59,8 +67,10 @@ int main(int argc, char** argv)
     SimulationStats simStats;
 
     ParticleSystem particleSystem;
-    ParticleRenderer particleRenderer;
+
+    GpuRenderer gpuRenderer;           // GPU-path renderer (CUDA-GL interop)
     SimulationGui simulationGui;
+    GpuMonitor gpuMonitor;
 
     particleSystem.InitializePool(1000000);
     particleSystem.Reset(settings);
@@ -74,10 +84,21 @@ int main(int argc, char** argv)
         sf::VideoMode({ 1280, 720 }),
         "VParticles"
     );
+    window.setVerticalSyncEnabled(false);   // Uncap FPS
+    window.setFramerateLimit(0);            // No frame limit
 
     if (!ImGui::SFML::Init(window))
     {
         return 1;
+    }
+
+    // Init GPU renderer after window (OpenGL context) is created
+    gpuRenderer.Init(window, 1000000);
+
+    if (runBenchmark)
+    {
+        BenchmarkRunner::Run(window, particleSystem, gpuRenderer, settings);
+        return 0;
     }
 
     ImGuiIO& io = ImGui::GetIO();
@@ -165,6 +186,10 @@ int main(int argc, char** argv)
     sf::Clock clock;
     float timeAccumulator = 0.0f;
     int frameCount = 0;
+    float gpuPollAccumulator = 0.0f;
+
+    // Initial GPU poll so stats aren't zero on first frame
+    gpuMonitor.Poll(stats);
 
     while (window.isOpen())
     {
@@ -180,6 +205,13 @@ int main(int argc, char** argv)
             stats.averageFps = static_cast<float>(frameCount) / timeAccumulator;
             timeAccumulator = 0.0f;
             frameCount = 0;
+        }
+
+        // Poll GPU metrics once per second (NVML is not free)
+        gpuPollAccumulator += dt;
+        if (gpuPollAccumulator >= 1.0f) {
+            gpuMonitor.Poll(stats);
+            gpuPollAccumulator = 0.0f;
         }
 
         while (const std::optional event = window.pollEvent())
@@ -223,7 +255,12 @@ int main(int argc, char** argv)
         window.clear();
 
         sf::Clock renderClock;
-        particleRenderer.Draw(window, particleSystem);
+        // GPU mode: CUDA kernel fills VBO, OpenGL instanced draw — zero CPU readback
+        // CPU mode: SFML vertex array built on CPU
+        if (gpuRenderer.IsInitialized())
+        {
+            gpuRenderer.Draw(window, particleSystem);
+        }
         simStats.renderTimeMs = renderClock.getElapsedTime().asSeconds() * 1000.0f;
         ImGui::SFML::Render(window);
 
