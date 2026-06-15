@@ -7,5 +7,10 @@
 class ParticleRenderer
 {
 public:
-    void Draw(sf::RenderWindow& window, const ParticleSystem& particleSystem) const;
+    ParticleRenderer();
+
+    void Draw(sf::RenderWindow& window, const ParticleSystem& particleSystem);
+
+private:
+    sf::VertexArray m_vertices;
 };

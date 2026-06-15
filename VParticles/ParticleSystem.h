@@ -4,19 +4,29 @@
 #include "Particle.h"
 #include "SimulationSettings.h"
 
+#include <random>
+#include "PerformanceStats.h"
+
 class ParticleSystem
 {
 public:
 
     std::vector<Particle> particles;
+    std::size_t activeCount = 0;
 
-    void Create(int count);
-    void Create(int count, const SimulationSettings& settings);
+    void InitializePool(std::size_t maxParticles);
 
-    void Reset(int count, const SimulationSettings& settings);
-    void Resize(int count, const SimulationSettings& settings);
+    void Reset(const SimulationSettings& settings);
 
-    void SetVelocity(float velocityX, float velocityY);
+    bool SpawnParticle(const SimulationSettings& settings);
 
-    void Update(float dt, float windowWidth, float windowHeight);
+    void Update(float dt, const SimulationSettings& settings, SimulationStats& stats);
+
+private:
+    float simulationTime = 0.0f;
+    float spawnAccumulator = 0.0f;
+    bool burstFired = false;
+    uint32_t nextParticleId = 0;
+
+    std::mt19937 rng;
 };

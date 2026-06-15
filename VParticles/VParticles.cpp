@@ -23,7 +23,9 @@ void RunConsoleMode(ParticleSystem& particleSystem)
         sf::Time frameTime = clock.restart();
         float dt = frameTime.asSeconds();
 
-        particleSystem.Update(dt, 1280.0f, 720.0f);
+        SimulationStats simStats;
+        SimulationSettings settings;
+        particleSystem.Update(dt, settings, simStats);
 
         timeAccumulator += dt;
         frameCount++;
@@ -32,7 +34,7 @@ void RunConsoleMode(ParticleSystem& particleSystem)
         {
             float avgFps = static_cast<float>(frameCount) / timeAccumulator;
             std::cout << "Average FPS: " << avgFps 
-                      << " | Particles: " << particleSystem.particles.size() 
+                      << " | Particles: " << particleSystem.activeCount 
                       << std::endl;
             timeAccumulator = 0.0f;
             frameCount = 0;
@@ -54,11 +56,14 @@ int main(int argc, char** argv)
     SimulationSettings settings;
     PerformanceStats stats;
 
+    SimulationStats simStats;
+
     ParticleSystem particleSystem;
     ParticleRenderer particleRenderer;
     SimulationGui simulationGui;
 
-    particleSystem.Create(SimulationDefaults::ParticleCount, settings);
+    particleSystem.InitializePool(1000000);
+    particleSystem.Reset(settings);
 
     if (startInConsoleMode)
     {
@@ -111,13 +116,49 @@ int main(int argc, char** argv)
     ImGuiStyle& style = ImGui::GetStyle();
     style.FontScaleMain = 1.0f;
     style.ScaleAllSizes(1.25f);
-    style.Colors[ImGuiCol_Text] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.045f, 0.055f, 1.0f);
-    style.Colors[ImGuiCol_TitleBg] = ImVec4(0.12f, 0.22f, 0.36f, 1.0f);
-    style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.18f, 0.33f, 0.54f, 1.0f);
-    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.13f, 0.22f, 0.34f, 1.0f);
-    style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.19f, 0.32f, 0.48f, 1.0f);
-    style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.39f, 0.59f, 1.0f);
+    
+    // Blender-style Rounding
+    style.WindowRounding = 8.0f;
+    style.FrameRounding = 4.0f;
+    style.GrabRounding = 4.0f;
+    style.PopupRounding = 4.0f;
+    style.ScrollbarRounding = 4.0f;
+    
+    // Blender-style Colors
+    ImVec4* colors = style.Colors;
+    colors[ImGuiCol_Text]                   = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+    colors[ImGuiCol_WindowBg]               = ImVec4(0.11f, 0.11f, 0.11f, 1.00f);
+    colors[ImGuiCol_ChildBg]                = ImVec4(0.11f, 0.11f, 0.11f, 1.00f);
+    colors[ImGuiCol_PopupBg]                = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
+    colors[ImGuiCol_Border]                 = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_FrameBg]                = ImVec4(0.17f, 0.17f, 0.17f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.23f, 0.23f, 0.23f, 1.00f);
+    colors[ImGuiCol_FrameBgActive]          = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+    colors[ImGuiCol_TitleBg]                = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_TitleBgActive]          = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_MenuBarBg]              = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.11f, 0.11f, 0.11f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_CheckMark]              = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_SliderGrab]             = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
+    colors[ImGuiCol_Button]                 = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_ButtonHovered]          = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_ButtonActive]           = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_Header]                 = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_HeaderActive]           = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_Separator]              = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_SeparatorActive]        = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_ResizeGrip]             = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
 
     // Removed local variables moved to top of main
 
@@ -149,11 +190,16 @@ int main(int argc, char** argv)
             {
                 window.close();
             }
+            else if (const auto* resized = event->getIf<sf::Event::Resized>())
+            {
+                sf::FloatRect visibleArea({0.f, 0.f}, {static_cast<float>(resized->size.x), static_cast<float>(resized->size.y)});
+                window.setView(sf::View(visibleArea));
+            }
         }
 
         ImGui::SFML::Update(window, frameTime);
 
-        SimulationGuiResult guiResult = simulationGui.Draw(settings, stats);
+        SimulationGuiResult guiResult = simulationGui.Draw(settings, stats, simStats);
 
         if (guiResult.switchToConsoleRequested)
         {
@@ -164,38 +210,21 @@ int main(int argc, char** argv)
 
         if (guiResult.resetRequested)
         {
-            settings = SimulationSettings();
-            particleSystem.Reset(settings.particleCount, settings);
-        }
-        else 
-        {
-            if (guiResult.particleCountChanged)
-            {
-                particleSystem.Resize(settings.particleCount, settings);
-            }
-            if (guiResult.velocityChanged)
-            {
-                particleSystem.SetVelocity(
-                    settings.velocityX,
-                    settings.velocityY
-                );
-            }
+            particleSystem.Reset(settings);
         }
 
-        auto size = window.getSize();
-
+        sf::Clock updateClock;
         if (!settings.paused)
         {
-            particleSystem.Update(
-                dt,
-                static_cast<float>(size.x),
-                static_cast<float>(size.y)
-            );
+            particleSystem.Update(dt, settings, simStats);
         }
+        simStats.updateTimeMs = updateClock.getElapsedTime().asSeconds() * 1000.0f;
 
         window.clear();
 
+        sf::Clock renderClock;
         particleRenderer.Draw(window, particleSystem);
+        simStats.renderTimeMs = renderClock.getElapsedTime().asSeconds() * 1000.0f;
         ImGui::SFML::Render(window);
 
         window.display();

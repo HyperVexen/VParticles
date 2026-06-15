@@ -16,5 +16,6 @@ class SimulationGui
 public:
     SimulationGuiResult Draw(
         SimulationSettings& settings,
-        const PerformanceStats& stats) const;
+        const PerformanceStats& stats,
+        const SimulationStats& simStats) const;
 };
