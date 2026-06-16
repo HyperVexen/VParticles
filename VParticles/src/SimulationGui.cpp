@@ -136,9 +136,11 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
 
 SimulationGuiResult SimulationGui::Draw(
     SimulationSettings& settings,
+    UndoSystem& undoSystem,
     const PerformanceStats& stats,
-    const SimulationStats& simStats) const
+    const SimulationStats& simStats)
 {
+    SimulationSettings startOfFrameSettings = settings;
     SimulationGuiResult result;
 
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Once);
@@ -183,6 +185,7 @@ SimulationGuiResult SimulationGui::Draw(
         int currentPreset = static_cast<int>(settings.activePreset);
         if (ImGui::Combo("##Preset", &currentPreset, presetNames, 6))
         {
+            undoSystem.PushUndo(settings);
             ApplyPreset(settings, static_cast<ArtistPreset>(currentPreset));
             result.resetRequested = true;
         }
@@ -562,6 +565,20 @@ SimulationGuiResult SimulationGui::Draw(
 
     ImGui::End();
     ImGui::PopStyleVar(2);
+
+    bool isAnyItemActive = ImGui::IsAnyItemActive();
+    if (isAnyItemActive && !m_wasAnyItemActive)
+    {
+        m_settingsBeforeEdit = startOfFrameSettings;
+    }
+    else if (!isAnyItemActive && m_wasAnyItemActive)
+    {
+        if (settings != m_settingsBeforeEdit)
+        {
+            undoSystem.PushUndo(m_settingsBeforeEdit);
+        }
+    }
+    m_wasAnyItemActive = isAnyItemActive;
 
     return result;
 }

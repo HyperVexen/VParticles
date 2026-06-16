@@ -13,6 +13,7 @@
 #include "SimulationGui.h"
 #include "SimulationSettings.h"
 #include "Benchmark.h"
+#include "UndoSystem.h"
 
 void RunConsoleMode(ParticleSystem& particleSystem)
 {
@@ -195,6 +196,7 @@ int main(int argc, char** argv)
 
     // Camera state
     Camera camera;
+    UndoSystem undoSystem;
     bool isDragging = false;
     sf::Vector2i lastMousePos;
 
@@ -283,11 +285,29 @@ int main(int argc, char** argv)
                     if (camera.distance > 20000.0f) camera.distance = 20000.0f;
                 }
             }
+            else if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>())
+            {
+                if (keyPressed->code == sf::Keyboard::Key::Z && keyPressed->control)
+                {
+                    if (keyPressed->shift)
+                    {
+                        undoSystem.Redo(settings);
+                    }
+                    else
+                    {
+                        undoSystem.Undo(settings);
+                    }
+                }
+                else if (keyPressed->code == sf::Keyboard::Key::Y && keyPressed->control)
+                {
+                    undoSystem.Redo(settings);
+                }
+            }
         }
 
         ImGui::SFML::Update(window, frameTime);
 
-        SimulationGuiResult guiResult = simulationGui.Draw(settings, stats, simStats);
+        SimulationGuiResult guiResult = simulationGui.Draw(settings, undoSystem, stats, simStats);
 
         if (guiResult.switchToConsoleRequested)
         {

@@ -114,3 +114,70 @@ struct SimulationSettings
     ArtistPreset activePreset = ArtistPreset::Custom;
     ComputeMode  computeMode  = ComputeMode::GPU;
 };
+
+inline bool operator==(const SimulationSettings& a, const SimulationSettings& b)
+{
+    if (a.startTime != b.startTime) return false;
+    if (a.endTime != b.endTime) return false;
+    if (a.randomSeed != b.randomSeed) return false;
+    if (a.emitterX != b.emitterX) return false;
+    if (a.emitterY != b.emitterY) return false;
+    if (a.emitterZ != b.emitterZ) return false;
+    if (a.shape != b.shape) return false;
+    if (a.emissionMode != b.emissionMode) return false;
+    if (a.emitRadius != b.emitRadius) return false;
+    if (a.emitWidth != b.emitWidth) return false;
+    if (a.emitHeight != b.emitHeight) return false;
+    if (a.emitDepth != b.emitDepth) return false;
+    if (a.emitCubeSize != b.emitCubeSize) return false;
+    if (a.gridColumns != b.gridColumns) return false;
+    if (a.gridRows != b.gridRows) return false;
+    if (a.gridSlices != b.gridSlices) return false;
+    if (a.gridSpacingX != b.gridSpacingX) return false;
+    if (a.gridSpacingY != b.gridSpacingY) return false;
+    if (a.gridSpacingZ != b.gridSpacingZ) return false;
+    if (a.showVisualGrid != b.showVisualGrid) return false;
+    if (a.spawnRate != b.spawnRate) return false;
+    if (a.burstCount != b.burstCount) return false;
+    if (a.particleCount != b.particleCount) return false;
+    if (a.paused != b.paused) return false;
+    if (a.gravity != b.gravity) return false;
+    if (a.windX != b.windX) return false;
+    if (a.windY != b.windY) return false;
+    if (a.windZ != b.windZ) return false;
+    if (a.drag != b.drag) return false;
+    if (a.baseMass != b.baseMass) return false;
+    if (a.massRandomness != b.massRandomness) return false;
+    if (a.velocityX != b.velocityX) return false;
+    if (a.velocityY != b.velocityY) return false;
+    if (a.velocityZ != b.velocityZ) return false;
+    if (a.velocityVarianceX != b.velocityVarianceX) return false;
+    if (a.velocityVarianceY != b.velocityVarianceY) return false;
+    if (a.velocityVarianceZ != b.velocityVarianceZ) return false;
+    if (a.particleLifetime != b.particleLifetime) return false;
+    if (a.lifetimeRandomness != b.lifetimeRandomness) return false;
+    if (a.baseSize != b.baseSize) return false;
+    if (a.sizeRandomness != b.sizeRandomness) return false;
+    if (a.sizeStart != b.sizeStart) return false;
+    if (a.sizeEnd != b.sizeEnd) return false;
+    if (a.initialRotationMin != b.initialRotationMin) return false;
+    if (a.initialRotationMax != b.initialRotationMax) return false;
+    if (a.angularVelocityMin != b.angularVelocityMin) return false;
+    if (a.angularVelocityMax != b.angularVelocityMax) return false;
+    if (a.colorRandomness != b.colorRandomness) return false;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (a.colorGradient[i].r != b.colorGradient[i].r) return false;
+        if (a.colorGradient[i].g != b.colorGradient[i].g) return false;
+        if (a.colorGradient[i].b != b.colorGradient[i].b) return false;
+        if (a.colorGradient[i].a != b.colorGradient[i].a) return false;
+    }
+    if (a.activePreset != b.activePreset) return false;
+    if (a.computeMode != b.computeMode) return false;
+    return true;
+}
+
+inline bool operator!=(const SimulationSettings& a, const SimulationSettings& b)
+{
+    return !(a == b);
+}

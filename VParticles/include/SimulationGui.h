@@ -1,7 +1,7 @@
 #pragma once
-
 #include "PerformanceStats.h"
 #include "SimulationSettings.h"
+#include "UndoSystem.h"
 
 struct SimulationGuiResult
 {
@@ -16,6 +16,11 @@ class SimulationGui
 public:
     SimulationGuiResult Draw(
         SimulationSettings& settings,
+        UndoSystem& undoSystem,
         const PerformanceStats& stats,
-        const SimulationStats& simStats) const;
+        const SimulationStats& simStats);
+
+private:
+    bool m_wasAnyItemActive = false;
+    SimulationSettings m_settingsBeforeEdit;
 };
