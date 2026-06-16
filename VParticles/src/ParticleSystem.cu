@@ -60,7 +60,7 @@ void ParticleSystem::InitializePool(std::size_t maxP)
     h_deadCount = h_maxP;
 
     cudaHostAlloc(&h_stagingBuffer, maxP * sizeof(Particle), cudaHostAllocDefault);
-    cudaMalloc(&d_randBuffer, maxP * 20 * sizeof(float)); 
+    cudaMalloc(&d_randBuffer, maxP * 24 * sizeof(float)); 
     
     cudaStreamCreate(&m_stream);
     cudaEventCreate(&m_frameDone);
@@ -117,7 +117,7 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
     }
 
     int slot = d_deadIndices[deadIdx];
-    int rIdx = idx * 20;
+    int rIdx = idx * 24;
     Particle& p = particles[slot];
     p.id = baseId + idx;
 
@@ -126,6 +126,7 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
 
     p.x = d_Settings.emitterX;
     p.y = d_Settings.emitterY;
+    p.z = d_Settings.emitterZ;
 
     if (d_Settings.shape == EmitterShape::Circle)
     {
@@ -138,10 +139,12 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
     {
         p.x += r11(0) * (d_Settings.emitWidth * 0.5f);
         p.y += r11(1) * (d_Settings.emitHeight * 0.5f);
+        p.z += r11(12) * (d_Settings.emitDepth * 0.5f);
     }
 
     p.vx = d_Settings.velocityX + r11(2) * d_Settings.velocityVarianceX;
     p.vy = d_Settings.velocityY + r11(3) * d_Settings.velocityVarianceY;
+    p.vz = d_Settings.velocityZ + r11(13) * d_Settings.velocityVarianceZ;
 
     float lifeVar = r11(4) * d_Settings.lifetimeRandomness * d_Settings.particleLifetime;
     p.maxLifetime = d_Settings.particleLifetime + lifeVar;
@@ -197,18 +200,23 @@ __global__ void UpdateParticlesKernel(Particle* particles, int maxParticles, int
     // Physics
     float forceX = d_Settings.windX;
     float forceY = d_Settings.windY + d_Settings.gravity;
+    float forceZ = d_Settings.windZ;
     
     float ax = forceX / p.mass;
     float ay = forceY / p.mass;
+    float az = forceZ / p.mass;
 
     p.vx += ax * dt;
     p.vy += ay * dt;
+    p.vz += az * dt;
 
     p.vx -= p.vx * d_Settings.drag * dt;
     p.vy -= p.vy * d_Settings.drag * dt;
+    p.vz -= p.vz * d_Settings.drag * dt;
 
     p.x += p.vx * dt;
     p.y += p.vy * dt;
+    p.z += p.vz * dt;
 
     p.rotation += p.angularVelocity * dt;
 
@@ -268,7 +276,7 @@ void ParticleSystem::Update(float dt, const SimulationSettings& settings, Simula
 
     if (spawnCount > 0)
     {
-        curandGenerateUniform(m_curandGen, d_randBuffer, spawnCount * 20);
+        curandGenerateUniform(m_curandGen, d_randBuffer, spawnCount * 24);
 
         int blockSize = 256;
         int numBlocks = (spawnCount + blockSize - 1) / blockSize;

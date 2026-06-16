@@ -24,10 +24,15 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
     settings.drag = 0.0f;
     settings.windX = 0.0f;
     settings.windY = 0.0f;
+    settings.windZ = 0.0f;
     settings.velocityX = 0.0f;
     settings.velocityY = 0.0f;
+    settings.velocityZ = 0.0f;
     settings.velocityVarianceX = 0.0f;
     settings.velocityVarianceY = 0.0f;
+    settings.velocityVarianceZ = 0.0f;
+    settings.emitterZ = 0.0f;
+    settings.emitDepth = 100.0f;
     settings.sizeStart = 1.0f;
     settings.sizeEnd = 1.0f;
     SetGradient(settings, CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255));
@@ -215,6 +220,10 @@ SimulationGuiResult SimulationGui::Draw(
             DrawPropertyLabel("Emitter Y");
             ImGui::SliderFloat("##Emitter Y", &settings.emitterY, 0.0f, 720.0f);
             EndPropertyControl();
+
+            DrawPropertyLabel("Emitter Z");
+            ImGui::SliderFloat("##Emitter Z", &settings.emitterZ, -1000.0f, 1000.0f);
+            EndPropertyControl();
             
             DrawPropertyLabel("Shape");
             const char* shapeNames[] = { "Point", "Circle", "Box" };
@@ -236,6 +245,9 @@ SimulationGuiResult SimulationGui::Draw(
                 EndPropertyControl();
                 DrawPropertyLabel("Height");
                 ImGui::SliderFloat("##Height", &settings.emitHeight, 0.0f, 1280.0f);
+                EndPropertyControl();
+                DrawPropertyLabel("Depth");
+                ImGui::SliderFloat("##Depth", &settings.emitDepth, 0.0f, 1280.0f);
                 EndPropertyControl();
             }
 
@@ -271,6 +283,10 @@ SimulationGuiResult SimulationGui::Draw(
             ImGui::SliderFloat("##Wind Y", &settings.windY, -1000.0f, 1000.0f);
             EndPropertyControl();
 
+            DrawPropertyLabel("Wind Z");
+            ImGui::SliderFloat("##Wind Z", &settings.windZ, -1000.0f, 1000.0f);
+            EndPropertyControl();
+
             DrawPropertyLabel("Drag");
             ImGui::SliderFloat("##Drag", &settings.drag, 0.0f, 10.0f);
             EndPropertyControl();
@@ -299,12 +315,20 @@ SimulationGuiResult SimulationGui::Draw(
             ImGui::SliderFloat("##VelY", &settings.velocityY, -1000.0f, 1000.0f);
             EndPropertyControl();
 
+            DrawPropertyLabel("Initial Vel Z");
+            ImGui::SliderFloat("##VelZ", &settings.velocityZ, -1000.0f, 1000.0f);
+            EndPropertyControl();
+
             DrawPropertyLabel("Variance X");
             ImGui::SliderFloat("##VarX", &settings.velocityVarianceX, 0.0f, 1000.0f);
             EndPropertyControl();
 
             DrawPropertyLabel("Variance Y");
             ImGui::SliderFloat("##VarY", &settings.velocityVarianceY, 0.0f, 1000.0f);
+            EndPropertyControl();
+
+            DrawPropertyLabel("Variance Z");
+            ImGui::SliderFloat("##VarZ", &settings.velocityVarianceZ, 0.0f, 1000.0f);
             EndPropertyControl();
             
             EndPropertiesTable();

@@ -49,6 +49,7 @@ __global__ void FillInstanceBufferKernel(
         int idx = atomicAdd(&cmd->instanceCount, 1);
         instances[idx].x    = p.x;
         instances[idx].y    = p.y;
+        instances[idx].z    = p.z;
         instances[idx].size = p.size * 0.5f; // half-size for shader
         instances[idx].r    = p.r;
         instances[idx].g    = p.g;

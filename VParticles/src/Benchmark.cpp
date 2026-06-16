@@ -1,6 +1,7 @@
 #include "Benchmark.h"
 #include "GpuMonitor.h"
 #include "PerformanceStats.h"
+#include "Camera.h"
 #include <iostream>
 #include <fstream>
 #include <thread>
@@ -60,6 +61,11 @@ void BenchmarkRunner::RunTest(sf::RenderWindow& window, ParticleSystem& particle
     
     GpuMonitor gpuMonitor;
     PerformanceStats stats;
+
+    // Default camera for benchmark
+    Camera benchCamera;
+    float aspect = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
+    Mat4 vpMat = benchCamera.GetVPMatrix(aspect);
     
     // Warm up for 1 second
     sf::Clock clock;
@@ -71,7 +77,7 @@ void BenchmarkRunner::RunTest(sf::RenderWindow& window, ParticleSystem& particle
         
         window.clear();
         if (gpuRenderer.IsInitialized())
-            gpuRenderer.Draw(window, particleSystem);
+            gpuRenderer.Draw(window, particleSystem, vpMat.Ptr());
         window.display();
     }
     
@@ -96,7 +102,7 @@ void BenchmarkRunner::RunTest(sf::RenderWindow& window, ParticleSystem& particle
         
         window.clear();
         if (gpuRenderer.IsInitialized())
-            gpuRenderer.Draw(window, particleSystem);
+            gpuRenderer.Draw(window, particleSystem, vpMat.Ptr());
         window.display();
         
         float dt = frameClock.getElapsedTime().asSeconds();

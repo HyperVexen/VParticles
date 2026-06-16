@@ -6,6 +6,7 @@
 
 #include "GpuMonitor.h"
 #include "GpuRenderer.h"
+#include "Camera.h"
 
 #include "ParticleSystem.h"
 #include "PerformanceStats.h"
@@ -80,9 +81,18 @@ int main(int argc, char** argv)
         RunConsoleMode(particleSystem);
         return 0;
     }
+    // Request a depth buffer for 3D rendering
+    sf::ContextSettings glSettings;
+    glSettings.depthBits = 24;
+    glSettings.majorVersion = 3;
+    glSettings.minorVersion = 3;
+
     sf::RenderWindow window(
         sf::VideoMode({ 1280, 720 }),
-        "VParticles"
+        "VParticles",
+        sf::Style::Default,
+        sf::State::Windowed,
+        glSettings
     );
     window.setVerticalSyncEnabled(false);   // Uncap FPS
     window.setFramerateLimit(0);            // No frame limit
@@ -183,6 +193,11 @@ int main(int argc, char** argv)
 
     // Removed local variables moved to top of main
 
+    // Camera state
+    Camera camera;
+    bool isDragging = false;
+    sf::Vector2i lastMousePos;
+
     sf::Clock clock;
     float timeAccumulator = 0.0f;
     int frameCount = 0;
@@ -227,6 +242,40 @@ int main(int argc, char** argv)
                 sf::FloatRect visibleArea({0.f, 0.f}, {static_cast<float>(resized->size.x), static_cast<float>(resized->size.y)});
                 window.setView(sf::View(visibleArea));
             }
+            else if (const auto* pressed = event->getIf<sf::Event::MouseButtonPressed>())
+            {
+                // Only start orbit if right mouse button and not over ImGui
+                if (pressed->button == sf::Mouse::Button::Right && !ImGui::GetIO().WantCaptureMouse)
+                {
+                    isDragging = true;
+                    lastMousePos = pressed->position;
+                }
+            }
+            else if (event->is<sf::Event::MouseButtonReleased>())
+            {
+                isDragging = false;
+            }
+            else if (const auto* moved = event->getIf<sf::Event::MouseMoved>())
+            {
+                if (isDragging)
+                {
+                    sf::Vector2i delta = moved->position - lastMousePos;
+                    lastMousePos = moved->position;
+
+                    camera.yaw   += static_cast<float>(delta.x) * 0.005f;
+                    camera.pitch += static_cast<float>(delta.y) * 0.005f;
+                    camera.ClampPitch();
+                }
+            }
+            else if (const auto* scrolled = event->getIf<sf::Event::MouseWheelScrolled>())
+            {
+                if (!ImGui::GetIO().WantCaptureMouse)
+                {
+                    camera.distance -= scrolled->delta * 50.0f;
+                    if (camera.distance < 10.0f) camera.distance = 10.0f;
+                    if (camera.distance > 20000.0f) camera.distance = 20000.0f;
+                }
+            }
         }
 
         ImGui::SFML::Update(window, frameTime);
@@ -256,10 +305,11 @@ int main(int argc, char** argv)
 
         sf::Clock renderClock;
         // GPU mode: CUDA kernel fills VBO, OpenGL instanced draw — zero CPU readback
-        // CPU mode: SFML vertex array built on CPU
         if (gpuRenderer.IsInitialized())
         {
-            gpuRenderer.Draw(window, particleSystem);
+            float aspect = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
+            Mat4 vpMat = camera.GetVPMatrix(aspect);
+            gpuRenderer.Draw(window, particleSystem, vpMat.Ptr());
         }
         simStats.renderTimeMs = renderClock.getElapsedTime().asSeconds() * 1000.0f;
         ImGui::SFML::Render(window);

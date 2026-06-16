@@ -26,7 +26,8 @@ public:
     bool Init(sf::RenderWindow& window, int maxParticles);
 
     // Main draw call — maps VBO, launches fill kernel, draws, unmaps.
-    void Draw(sf::RenderWindow& window, const ParticleSystem& ps);
+    // vpMatrix: column-major 4x4 view-projection matrix from Camera.
+    void Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* vpMatrix);
 
     bool IsInitialized() const { return m_initialized; }
 

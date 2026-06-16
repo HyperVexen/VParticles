@@ -16,7 +16,7 @@ bool CudaMapGLBuffer(void* resource, void** outPtr, cudaStream_t stream);
 void CudaUnmapGLBuffer(void* resource, cudaStream_t stream);
 void LaunchFillInstanceKernel(const Particle* particles, void* cudaMappedPtr, void* cudaMappedIndirect, int maxParticles, cudaStream_t stream);
 
-// ─── GLSL Shaders ────────────────────────────────────────────────────────────
+// ─── GLSL Shaders (3D MVP pipeline) ─────────────────────────────────────────
 
 static const char* kVertexShaderSrc = R"glsl(
 #version 330 core
@@ -25,24 +25,28 @@ static const char* kVertexShaderSrc = R"glsl(
 layout(location = 0) in vec2 a_QuadPos;
 
 // Per-instance data written by CUDA kernel
-layout(location = 1) in vec2  i_WorldPos;
+layout(location = 1) in vec3  i_WorldPos;   // x, y, z
 layout(location = 2) in float i_HalfSize;
 layout(location = 3) in vec4  i_Color;
 
 out vec4 v_Color;
 
-uniform vec2 u_Resolution; // viewport size in pixels
+uniform mat4 u_VP;  // view-projection matrix from Camera
 
 void main()
 {
-    // Scale quad by particle half-size, then translate to world position
-    vec2 worldPos = i_WorldPos + a_QuadPos * (i_HalfSize * 2.0);
+    // Billboard: expand quad in clip space so particles always face the camera.
+    // First transform the particle center to clip space.
+    vec4 centerClip = u_VP * vec4(i_WorldPos, 1.0);
 
-    // Convert pixel-space (origin top-left, y down) to NDC (origin center, y up)
-    vec2 ndc = (worldPos / u_Resolution) * 2.0 - 1.0;
-    ndc.y = -ndc.y;
+    // Scale quad offset by half-size and project proportionally to maintain
+    // a consistent world-space size. We divide by the w component to get
+    // the size in NDC, then multiply by w to bring it back to clip space.
+    // This makes particles shrink with distance (perspective).
+    vec2 offset = a_QuadPos * (i_HalfSize * 2.0);
 
-    gl_Position = vec4(ndc, 0.0, 1.0);
+    // Apply offset in clip space (screen-aligned billboard)
+    gl_Position = centerClip + vec4(offset, 0.0, 0.0);
     v_Color     = i_Color;
 }
 )glsl";
@@ -158,19 +162,19 @@ bool GpuRenderer::Init(sf::RenderWindow& window, int maxParticles)
 
     const GLsizei stride = sizeof(InstanceData);
 
-    // i_WorldPos  — offset 0,  2 floats
+    // i_WorldPos  — offset 0,  3 floats (x, y, z)
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride,
                           (void*)offsetof(InstanceData, x));
     glVertexAttribDivisor(1, 1); // advance per-instance
 
-    // i_HalfSize  — offset 8,  1 float
+    // i_HalfSize  — offset 12, 1 float
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, stride,
                           (void*)offsetof(InstanceData, size));
     glVertexAttribDivisor(2, 1);
 
-    // i_Color     — offset 12, 4 floats
+    // i_Color     — offset 16, 4 unsigned bytes normalized
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
                           (void*)offsetof(InstanceData, r));
@@ -200,12 +204,12 @@ bool GpuRenderer::Init(sf::RenderWindow& window, int maxParticles)
         return false;
 
     m_initialized = true;
-    printf("[GpuRenderer] Initialized — CUDA-GL interop active, max %d particles (Zero-Sync)\n",
+    printf("[GpuRenderer] Initialized — CUDA-GL interop active, max %d particles (3D Zero-Sync)\n",
            maxParticles);
     return true;
 }
 
-void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps)
+void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* vpMatrix)
 {
     if (!m_initialized) return;
 
@@ -228,7 +232,7 @@ void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps)
     
     // (cudaStreamSynchronize removed to allow CPU/GPU overlap)
 
-    // ── Step 4: Raw OpenGL instanced draw ──
+    // ── Step 4: Raw OpenGL instanced draw (3D) ──
     (void)window.setActive(true);
 
     // Let SFML know we're about to use raw GL
@@ -236,21 +240,25 @@ void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps)
 
     glUseProgram(m_shaderProgram);
 
-    // Upload resolution uniform for NDC conversion
-    GLint resLoc = glGetUniformLocation(m_shaderProgram, "u_Resolution");
-    glUniform2f(resLoc,
-                static_cast<float>(window.getSize().x),
-                static_cast<float>(window.getSize().y));
+    // Upload view-projection matrix
+    GLint vpLoc = glGetUniformLocation(m_shaderProgram, "u_VP");
+    glUniformMatrix4fv(vpLoc, 1, GL_FALSE, vpMatrix);
 
-    // Enable alpha blending
+    // Enable alpha blending and depth testing
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_FALSE); // Don't write depth for transparent particles
 
     glBindVertexArray(m_vao);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectVbo);
     glDrawArraysIndirect(GL_TRIANGLE_STRIP, nullptr);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
     glBindVertexArray(0);
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_DEPTH_TEST);
     glUseProgram(0);
 
     // Restore SFML GL state

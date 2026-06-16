@@ -36,10 +36,12 @@ struct SimulationSettings
     // Emission & Transform
     float emitterX = 640.0f;
     float emitterY = 360.0f;
+    float emitterZ = 0.0f;
     EmitterShape shape = EmitterShape::Point;
     float emitRadius = 50.0f;
     float emitWidth = 100.0f;
     float emitHeight = 100.0f;
+    float emitDepth = 100.0f;
 
     float spawnRate = 100.0f; // particles/sec
     int burstCount = 0;
@@ -50,6 +52,7 @@ struct SimulationSettings
     float gravity = 0.0f;
     float windX = 0.0f;
     float windY = 0.0f;
+    float windZ = 0.0f;
     float drag = 0.0f;
     float baseMass = 1.0f;
     float massRandomness = 0.0f;
@@ -57,8 +60,10 @@ struct SimulationSettings
     // Velocity
     float velocityX = 0.0f;
     float velocityY = 0.0f;
+    float velocityZ = 0.0f;
     float velocityVarianceX = 100.0f;
     float velocityVarianceY = 100.0f;
+    float velocityVarianceZ = 0.0f;
 
     // Lifetime
     float particleLifetime = 2.0f;
