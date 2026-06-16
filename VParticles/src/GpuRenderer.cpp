@@ -31,22 +31,19 @@ layout(location = 3) in vec4  i_Color;
 
 out vec4 v_Color;
 
-uniform mat4 u_VP;  // view-projection matrix from Camera
+uniform mat4 u_View;
+uniform mat4 u_Proj;
 
 void main()
 {
-    // Billboard: expand quad in clip space so particles always face the camera.
-    // First transform the particle center to clip space.
-    vec4 centerClip = u_VP * vec4(i_WorldPos, 1.0);
+    // Transform center to camera space
+    vec4 viewPos = u_View * vec4(i_WorldPos, 1.0);
 
-    // Scale quad offset by half-size and project proportionally to maintain
-    // a consistent world-space size. We divide by the w component to get
-    // the size in NDC, then multiply by w to bring it back to clip space.
-    // This makes particles shrink with distance (perspective).
-    vec2 offset = a_QuadPos * (i_HalfSize * 2.0);
+    // Apply the quad offset in view space (this keeps it screen-aligned and square)
+    viewPos.xy += a_QuadPos * (i_HalfSize * 2.0);
 
-    // Apply offset in clip space (screen-aligned billboard)
-    gl_Position = centerClip + vec4(offset, 0.0, 0.0);
+    // Project to clip space
+    gl_Position = u_Proj * viewPos;
     v_Color     = i_Color;
 }
 )glsl";
@@ -209,7 +206,7 @@ bool GpuRenderer::Init(sf::RenderWindow& window, int maxParticles)
     return true;
 }
 
-void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* vpMatrix)
+void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* viewMatrix, const float* projMatrix)
 {
     if (!m_initialized) return;
 
@@ -240,16 +237,16 @@ void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const
 
     glUseProgram(m_shaderProgram);
 
-    // Upload view-projection matrix
-    GLint vpLoc = glGetUniformLocation(m_shaderProgram, "u_VP");
-    glUniformMatrix4fv(vpLoc, 1, GL_FALSE, vpMatrix);
+    // Upload view and projection matrices
+    GLint viewLoc = glGetUniformLocation(m_shaderProgram, "u_View");
+    GLint projLoc = glGetUniformLocation(m_shaderProgram, "u_Proj");
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, viewMatrix);
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, projMatrix);
 
-    // Enable alpha blending and depth testing
+    // Enable alpha blending and explicitly disable depth testing for transparent particles
+    glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
-    glDepthMask(GL_FALSE); // Don't write depth for transparent particles
 
     glBindVertexArray(m_vao);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectVbo);
@@ -257,8 +254,6 @@ void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
     glBindVertexArray(0);
 
-    glDepthMask(GL_TRUE);
-    glDisable(GL_DEPTH_TEST);
     glUseProgram(0);
 
     // Restore SFML GL state
