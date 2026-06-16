@@ -336,7 +336,7 @@ __global__ void UpdateParticlesKernel(Particle* particles, int maxParticles, int
 
     // Physics
     float forceX = d_Settings.windX;
-    float forceY = d_Settings.windY + d_Settings.gravity;
+    float forceY = d_Settings.windY - d_Settings.gravity;
     float forceZ = d_Settings.windZ;
     
     float ax = forceX / p.mass;
