@@ -8,13 +8,13 @@ set(CMAKE_CUDA_ARCHITECTURES "native")
 set(VCPKG_ROOT "C:/Users/death/Desktop/Important folder/LIBRARIES/VCPKG/installed/x64-windows")
 
 include_directories(
+    "VParticles/include"
     "${VCPKG_ROOT}/include"
     "D:/CUDA/include"   # nvml.h, cuda_gl_interop.h for non-.cu files
 )
 
 # Gather source files
-file(GLOB SOURCES "VParticles/*.cpp" "VParticles/*.cu")
-list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/VParticles/ParticleSystem.cpp")
+file(GLOB SOURCES "VParticles/src/*.cpp" "VParticles/src/*.cu")
 
 add_executable(VParticles ${SOURCES})
 

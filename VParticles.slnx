@@ -1,7 +1,0 @@
-<Solution>
-  <Configurations>
-    <Platform Name="x64" />
-    <Platform Name="x86" />
-  </Configurations>
-  <Project Path="VParticles/VParticles.vcxproj" Id="9aba6afa-c184-4f8d-9bd1-edd681c2530f" />
-</Solution>
