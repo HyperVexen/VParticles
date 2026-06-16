@@ -1,9 +1,0 @@
-# ninja log v7
-93	2091	8032471835904346	CMakeFiles/VParticles.dir/VParticles/SimulationGui.cpp.obj	97658157d47a7287
-77	4533	8032471835741269	CMakeFiles/VParticles.dir/VParticles/ParticleRenderer.cpp.obj	7a5c2bbdb307cfe3
-103	4712	8032471836007867	CMakeFiles/VParticles.dir/VParticles/VParticles.cpp.obj	a4e629e1b54848cf
-46	7135	8032437151867529	CMakeFiles/VParticles.dir/VParticles/ParticleSystem.cu.obj	7e28e9c2675ccf3d
-6164	7276	8032445607856449	VParticles.exe	1130d26f97d45fad
-31	255	8032437151711381	CMakeFiles/VParticles.dir/VParticles/GpuMonitor.cpp.obj	ca8577681f43499f
-59	4877	8032471835543244	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cpp.obj	d8e8fd6b5d04fcff
-68	9309	8032471835643962	CMakeFiles/VParticles.dir/VParticles/GpuRenderer.cu.obj	f7d2a356b69968e3

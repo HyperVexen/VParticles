@@ -1,6 +1,8 @@
 .vs/
 x64/
 VParticles/x64/
+out/
+build/
 
 *.user
 *.suo
@@ -14,3 +16,4 @@ VParticles/x64/
 *.dll
 *.log
 imgui.ini
+benchmark_results.csv

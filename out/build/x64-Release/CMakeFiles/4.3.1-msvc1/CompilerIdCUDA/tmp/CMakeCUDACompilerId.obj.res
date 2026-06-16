@@ -1,1 +1,0 @@
--D__CUDA_ARCH__=750 -D__CUDA_ARCH_LIST__=750 -nologo -c -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc "-ID:/CUDA/bin/../include" "-ID:/CUDA/bin/../include/cccl"     "C:\Users\death\Desktop\Important folder\PROJECTS\VParticles\out\build\x64-Release\CMakeFiles\4.3.1-msvc1\CompilerIdCUDA\tmp\CMakeCUDACompilerId.cudafe1.cpp" 
