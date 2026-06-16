@@ -18,6 +18,20 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
     settings.activePreset = preset;
     // reset some defaults first
     settings.shape = EmitterShape::Point;
+    settings.emissionMode = EmissionMode::Volume;
+    settings.emitRadius = 50.0f;
+    settings.emitWidth = 100.0f;
+    settings.emitHeight = 100.0f;
+    settings.emitDepth = 100.0f;
+    settings.emitCubeSize = 100.0f;
+    settings.gridColumns = 10;
+    settings.gridRows = 10;
+    settings.gridSlices = 1;
+    settings.gridSpacingX = 20.0f;
+    settings.gridSpacingY = 20.0f;
+    settings.gridSpacingZ = 20.0f;
+    settings.showVisualGrid = true;
+    
     settings.burstCount = 0;
     settings.spawnRate = 100.0f;
     settings.gravity = 0.0f;
@@ -32,7 +46,6 @@ static void ApplyPreset(SimulationSettings& settings, ArtistPreset preset)
     settings.velocityVarianceY = 0.0f;
     settings.velocityVarianceZ = 0.0f;
     settings.emitterZ = 0.0f;
-    settings.emitDepth = 100.0f;
     settings.sizeStart = 1.0f;
     settings.sizeEnd = 1.0f;
     SetGradient(settings, CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255), CudaColor(255, 255, 255, 255));
@@ -184,7 +197,9 @@ SimulationGuiResult SimulationGui::Draw(
         ImGui::Checkbox("Paused", &settings.paused);
         EndPropertyControl();
 
-        // Compute Mode combo removed as it's now GPU-only
+        DrawPropertyLabel("Viewport Grid");
+        ImGui::Checkbox("##ShowGrid", &settings.showVisualGrid);
+        EndPropertyControl();
         
         EndPropertiesTable();
     }
@@ -226,13 +241,24 @@ SimulationGuiResult SimulationGui::Draw(
             EndPropertyControl();
             
             DrawPropertyLabel("Shape");
-            const char* shapeNames[] = { "Point", "Circle", "Box" };
+            const char* shapeNames[] = { "Point", "Circle", "Box", "Sphere", "Cube", "Grid" };
             int currentShape = static_cast<int>(settings.shape);
-            if (ImGui::Combo("##Shape", &currentShape, shapeNames, 3))
+            if (ImGui::Combo("##Shape", &currentShape, shapeNames, 6))
                 settings.shape = static_cast<EmitterShape>(currentShape);
             EndPropertyControl();
+
+            // Emission Mode (hide for Point and Grid as they are discrete/single points)
+            if (settings.shape != EmitterShape::Point && settings.shape != EmitterShape::Grid)
+            {
+                DrawPropertyLabel("Emission Mode");
+                const char* modeNames[] = { "Volume (Inside)", "Surface (Boundary)" };
+                int currentMode = static_cast<int>(settings.emissionMode);
+                if (ImGui::Combo("##EmissionMode", &currentMode, modeNames, 2))
+                    settings.emissionMode = static_cast<EmissionMode>(currentMode);
+                EndPropertyControl();
+            }
                 
-            if (settings.shape == EmitterShape::Circle)
+            if (settings.shape == EmitterShape::Circle || settings.shape == EmitterShape::Sphere)
             {
                 DrawPropertyLabel("Radius");
                 ImGui::SliderFloat("##Radius", &settings.emitRadius, 0.0f, 500.0f);
@@ -248,6 +274,34 @@ SimulationGuiResult SimulationGui::Draw(
                 EndPropertyControl();
                 DrawPropertyLabel("Depth");
                 ImGui::SliderFloat("##Depth", &settings.emitDepth, 0.0f, 1280.0f);
+                EndPropertyControl();
+            }
+            else if (settings.shape == EmitterShape::Cube)
+            {
+                DrawPropertyLabel("Edge Size");
+                ImGui::SliderFloat("##CubeSize", &settings.emitCubeSize, 0.0f, 1280.0f);
+                EndPropertyControl();
+            }
+            else if (settings.shape == EmitterShape::Grid)
+            {
+                DrawPropertyLabel("Grid Columns");
+                ImGui::SliderInt("##GridCols", &settings.gridColumns, 1, 100);
+                EndPropertyControl();
+                DrawPropertyLabel("Grid Rows");
+                ImGui::SliderInt("##GridRows", &settings.gridRows, 1, 100);
+                EndPropertyControl();
+                DrawPropertyLabel("Grid Slices");
+                ImGui::SliderInt("##GridSlices", &settings.gridSlices, 1, 100);
+                EndPropertyControl();
+
+                DrawPropertyLabel("Spacing X");
+                ImGui::SliderFloat("##SpacingX", &settings.gridSpacingX, 0.1f, 200.0f);
+                EndPropertyControl();
+                DrawPropertyLabel("Spacing Y");
+                ImGui::SliderFloat("##SpacingY", &settings.gridSpacingY, 0.1f, 200.0f);
+                EndPropertyControl();
+                DrawPropertyLabel("Spacing Z");
+                ImGui::SliderFloat("##SpacingZ", &settings.gridSpacingZ, 0.1f, 200.0f);
                 EndPropertyControl();
             }
 

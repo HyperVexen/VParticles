@@ -78,7 +78,7 @@ void BenchmarkRunner::RunTest(sf::RenderWindow& window, ParticleSystem& particle
         
         window.clear();
         if (gpuRenderer.IsInitialized())
-            gpuRenderer.Draw(window, particleSystem, viewMat.Ptr(), projMat.Ptr());
+            gpuRenderer.Draw(window, particleSystem, viewMat.Ptr(), projMat.Ptr(), settings);
         window.display();
     }
     
@@ -103,7 +103,7 @@ void BenchmarkRunner::RunTest(sf::RenderWindow& window, ParticleSystem& particle
         
         window.clear();
         if (gpuRenderer.IsInitialized())
-            gpuRenderer.Draw(window, particleSystem, viewMat.Ptr(), projMat.Ptr());
+            gpuRenderer.Draw(window, particleSystem, viewMat.Ptr(), projMat.Ptr(), settings);
         window.display();
         
         float dt = frameClock.getElapsedTime().asSeconds();

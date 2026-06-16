@@ -8,6 +8,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <vector>
+#include <cmath>
 
 // Forward declarations of CUDA helpers defined in GpuRenderer.cu
 bool CudaRegisterGLBuffer(void** outResource, unsigned int vboId);
@@ -58,6 +60,31 @@ void main()
 }
 )glsl";
 
+static const char* kGridVertexShaderSrc = R"glsl(
+#version 330 core
+layout(location = 0) in vec3 a_Pos;
+layout(location = 1) in vec4 a_Color;
+out vec4 v_Color;
+uniform mat4 u_View;
+uniform mat4 u_Proj;
+void main()
+{
+    gl_Position = u_Proj * u_View * vec4(a_Pos, 1.0);
+    v_Color = a_Color;
+}
+)glsl";
+
+static const char* kGridFragmentShaderSrc = R"glsl(
+#version 330 core
+in vec4 v_Color;
+out vec4 FragColor;
+void main()
+{
+    FragColor = v_Color;
+}
+)glsl";
+
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 static GLuint CompileShader(GLenum type, const char* src)
@@ -90,6 +117,10 @@ GpuRenderer::~GpuRenderer()
     if (m_quadVbo)       glDeleteBuffers(1, &m_quadVbo);
     if (m_vao)           glDeleteVertexArrays(1, &m_vao);
     if (m_shaderProgram) glDeleteProgram(m_shaderProgram);
+    
+    if (m_gridVbo)       glDeleteBuffers(1, &m_gridVbo);
+    if (m_gridVao)       glDeleteVertexArrays(1, &m_gridVao);
+    if (m_gridShaderProgram) glDeleteProgram(m_gridShaderProgram);
 }
 
 bool GpuRenderer::Init(sf::RenderWindow& window, int maxParticles)
@@ -200,13 +231,96 @@ bool GpuRenderer::Init(sf::RenderWindow& window, int maxParticles)
     if (!CudaRegisterGLBuffer(&m_cudaIndirectResource, m_indirectVbo))
         return false;
 
+    SetupGrid();
+
     m_initialized = true;
     printf("[GpuRenderer] Initialized — CUDA-GL interop active, max %d particles (3D Zero-Sync)\n",
            maxParticles);
     return true;
 }
 
-void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* viewMatrix, const float* projMatrix)
+void GpuRenderer::SetupGrid()
+{
+    // Shaders
+    GLuint vert = CompileShader(GL_VERTEX_SHADER, kGridVertexShaderSrc);
+    GLuint frag = CompileShader(GL_FRAGMENT_SHADER, kGridFragmentShaderSrc);
+    if (!vert || !frag) return;
+
+    m_gridShaderProgram = glCreateProgram();
+    glAttachShader(m_gridShaderProgram, vert);
+    glAttachShader(m_gridShaderProgram, frag);
+    glLinkProgram(m_gridShaderProgram);
+    glDeleteShader(vert);
+    glDeleteShader(frag);
+
+    // Generate grid line vertices
+    std::vector<float> vertices;
+    float startX = 640.0f - 1000.0f;
+    float endX = 640.0f + 1000.0f;
+    float startZ = -1000.0f;
+    float endZ = 1000.0f;
+    float gridY = 360.0f;
+    float spacing = 50.0f;
+
+    auto addVertex = [&](float px, float py, float pz, float cr, float cg, float cb, float ca) {
+        vertices.push_back(px);
+        vertices.push_back(py);
+        vertices.push_back(pz);
+        vertices.push_back(cr);
+        vertices.push_back(cg);
+        vertices.push_back(cb);
+        vertices.push_back(ca);
+    };
+
+    // Lines parallel to Z axis (varying Z, constant X)
+    for (float x = startX; x <= endX; x += spacing)
+    {
+        float cr = 0.25f, cg = 0.25f, cb = 0.25f, ca = 1.0f;
+        // Highlight the Z-axis line in blue (passing through center X=640)
+        if (std::abs(x - 640.0f) < 0.1f)
+        {
+            cr = 0.2f; cg = 0.4f; cb = 0.8f;
+        }
+        addVertex(x, gridY, startZ, cr, cg, cb, ca);
+        addVertex(x, gridY, endZ, cr, cg, cb, ca);
+    }
+
+    // Lines parallel to X axis (varying X, constant Z)
+    for (float z = startZ; z <= endZ; z += spacing)
+    {
+        float cr = 0.25f, cg = 0.25f, cb = 0.25f, ca = 1.0f;
+        // Highlight the X-axis line in red (passing through center Z=0)
+        if (std::abs(z - 0.0f) < 0.1f)
+        {
+            cr = 0.8f; cg = 0.2f; cb = 0.2f;
+        }
+        addVertex(startX, gridY, z, cr, cg, cb, ca);
+        addVertex(endX, gridY, z, cr, cg, cb, ca);
+    }
+
+    m_gridVertexCount = static_cast<int>(vertices.size() / 7);
+
+    // Create VAO/VBO
+    glGenVertexArrays(1, &m_gridVao);
+    glBindVertexArray(m_gridVao);
+
+    glGenBuffers(1, &m_gridVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m_gridVbo);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+    // Position attribute (layout location 0)
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), nullptr);
+
+    // Color attribute (layout location 1)
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)(3 * sizeof(float)));
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* viewMatrix, const float* projMatrix, const struct SimulationSettings& settings)
 {
     if (!m_initialized) return;
 
@@ -235,6 +349,27 @@ void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const
     // Let SFML know we're about to use raw GL
     window.pushGLStates();
 
+    // Disable depth testing and enable alpha blending
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // ── Render visual floor grid if enabled ──
+    if (settings.showVisualGrid && m_gridVao != 0 && m_gridVertexCount > 0)
+    {
+        glUseProgram(m_gridShaderProgram);
+        GLint viewLoc = glGetUniformLocation(m_gridShaderProgram, "u_View");
+        GLint projLoc = glGetUniformLocation(m_gridShaderProgram, "u_Proj");
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, viewMatrix);
+        glUniformMatrix4fv(projLoc, 1, GL_FALSE, projMatrix);
+
+        glBindVertexArray(m_gridVao);
+        glDrawArrays(GL_LINES, 0, m_gridVertexCount);
+        glBindVertexArray(0);
+        glUseProgram(0);
+    }
+
+    // ── Render particles ──
     glUseProgram(m_shaderProgram);
 
     // Upload view and projection matrices
@@ -242,11 +377,6 @@ void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const
     GLint projLoc = glGetUniformLocation(m_shaderProgram, "u_Proj");
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, viewMatrix);
     glUniformMatrix4fv(projLoc, 1, GL_FALSE, projMatrix);
-
-    // Enable alpha blending and explicitly disable depth testing for transparent particles
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glBindVertexArray(m_vao);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectVbo);

@@ -310,7 +310,7 @@ int main(int argc, char** argv)
             float aspect = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
             Mat4 viewMat = camera.GetViewMatrix();
             Mat4 projMat = camera.GetProjectionMatrix(aspect);
-            gpuRenderer.Draw(window, particleSystem, viewMat.Ptr(), projMat.Ptr());
+            gpuRenderer.Draw(window, particleSystem, viewMat.Ptr(), projMat.Ptr(), settings);
         }
         simStats.renderTimeMs = renderClock.getElapsedTime().asSeconds() * 1000.0f;
         ImGui::SFML::Render(window);

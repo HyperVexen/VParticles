@@ -28,13 +28,14 @@ public:
     // Main draw call — maps VBO, launches fill kernel, draws, unmaps.
     // viewMatrix: column-major 4x4 view matrix from Camera.
     // projMatrix: column-major 4x4 projection matrix from Camera.
-    void Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* viewMatrix, const float* projMatrix);
+    void Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* viewMatrix, const float* projMatrix, const struct SimulationSettings& settings);
 
     bool IsInitialized() const { return m_initialized; }
 
 private:
     bool CompileShaders();
     void SetupVAO();
+    void SetupGrid();
 
     // OpenGL objects
     uint32_t m_vao           = 0;
@@ -42,6 +43,12 @@ private:
     uint32_t m_instanceVbo   = 0;  // per-instance data written by CUDA kernel
     uint32_t m_shaderProgram = 0;
     int      m_maxParticles  = 0;
+
+    // Viewport Grid Floor rendering objects
+    uint32_t m_gridVao           = 0;
+    uint32_t m_gridVbo           = 0;
+    uint32_t m_gridShaderProgram = 0;
+    int      m_gridVertexCount   = 0;
 
     // CUDA-GL interop handle (opaque — actually cudaGraphicsResource_t)
     void* m_cudaResource = nullptr;

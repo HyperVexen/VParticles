@@ -131,15 +131,110 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
     if (d_Settings.shape == EmitterShape::Circle)
     {
         float angle = r01(0) * 2.0f * M_PI;
-        float radius = sqrtf(r01(1)) * d_Settings.emitRadius;
+        float radius = d_Settings.emitRadius;
+        if (d_Settings.emissionMode == EmissionMode::Volume)
+        {
+            radius *= sqrtf(r01(1));
+        }
         p.x += cosf(angle) * radius;
         p.y += sinf(angle) * radius;
     }
     else if (d_Settings.shape == EmitterShape::Box)
     {
-        p.x += r11(0) * (d_Settings.emitWidth * 0.5f);
-        p.y += r11(1) * (d_Settings.emitHeight * 0.5f);
-        p.z += r11(12) * (d_Settings.emitDepth * 0.5f);
+        if (d_Settings.emissionMode == EmissionMode::Volume)
+        {
+            p.x += r11(0) * (d_Settings.emitWidth * 0.5f);
+            p.y += r11(1) * (d_Settings.emitHeight * 0.5f);
+            p.z += r11(12) * (d_Settings.emitDepth * 0.5f);
+        }
+        else // Surface mode
+        {
+            float w = d_Settings.emitWidth;
+            float h = d_Settings.emitHeight;
+            float d = d_Settings.emitDepth;
+            float areaX = h * d;
+            float areaY = w * d;
+            float areaZ = w * h;
+            float totalArea = areaX + areaY + areaZ;
+
+            float rVal = r01(0) * totalArea;
+            if (rVal < areaX)
+            {
+                // Left or Right face
+                p.x += (r01(1) < 0.5f ? -0.5f : 0.5f) * w;
+                p.y += r11(12) * (h * 0.5f);
+                p.z += r11(14) * (d * 0.5f);
+            }
+            else if (rVal < areaX + areaY)
+            {
+                // Bottom or Top face
+                p.x += r11(12) * (w * 0.5f);
+                p.y += (r01(1) < 0.5f ? -0.5f : 0.5f) * h;
+                p.z += r11(14) * (d * 0.5f);
+            }
+            else
+            {
+                // Back or Front face
+                p.x += r11(12) * (w * 0.5f);
+                p.y += r11(14) * (h * 0.5f);
+                p.z += (r01(1) < 0.5f ? -0.5f : 0.5f) * d;
+            }
+        }
+    }
+    else if (d_Settings.shape == EmitterShape::Cube)
+    {
+        float s = d_Settings.emitCubeSize;
+        if (d_Settings.emissionMode == EmissionMode::Volume)
+        {
+            p.x += r11(0) * (s * 0.5f);
+            p.y += r11(1) * (s * 0.5f);
+            p.z += r11(12) * (s * 0.5f);
+        }
+        else // Surface mode (6 equal-area faces)
+        {
+            int face = static_cast<int>(r01(0) * 6.0f);
+            if (face == 0)      { p.x += -0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
+            else if (face == 1) { p.x +=  0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
+            else if (face == 2) { p.y += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
+            else if (face == 3) { p.y +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
+            else if (face == 4) { p.z += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); }
+            else                { p.z +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); }
+        }
+    }
+    else if (d_Settings.shape == EmitterShape::Sphere)
+    {
+        // Uniform direction vector on sphere
+        float zVal = r11(0); // [-1, 1]
+        float phi = r01(1) * 2.0f * M_PI;
+        float rDir = sqrtf(fmaxf(1.0f - zVal * zVal, 0.0f));
+        float dx = rDir * cosf(phi);
+        float dy = rDir * sinf(phi);
+        float dz = zVal;
+
+        float r = d_Settings.emitRadius;
+        if (d_Settings.emissionMode == EmissionMode::Volume)
+        {
+            // Volumetric density correction: cube root of uniform random
+            r *= powf(r01(12), 1.0f / 3.0f);
+        }
+        p.x += dx * r;
+        p.y += dy * r;
+        p.z += dz * r;
+    }
+    else if (d_Settings.shape == EmitterShape::Grid)
+    {
+        int cols = d_Settings.gridColumns > 0 ? d_Settings.gridColumns : 1;
+        int rows = d_Settings.gridRows > 0 ? d_Settings.gridRows : 1;
+        int slices = d_Settings.gridSlices > 0 ? d_Settings.gridSlices : 1;
+
+        int gridIndex = p.id;
+        int ix = gridIndex % cols;
+        int iy = (gridIndex / cols) % rows;
+        int iz = (gridIndex / (cols * rows)) % slices;
+
+        p.x += (ix - (cols - 1) * 0.5f) * d_Settings.gridSpacingX;
+        p.y += (iy - (rows - 1) * 0.5f) * d_Settings.gridSpacingY;
+        p.z += (iz - (slices - 1) * 0.5f) * d_Settings.gridSpacingZ;
     }
 
     p.vx = d_Settings.velocityX + r11(2) * d_Settings.velocityVarianceX;

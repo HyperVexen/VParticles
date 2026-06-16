@@ -8,8 +8,18 @@ enum class EmitterShape
 {
     Point,
     Circle,
-    Box
+    Box,
+    Sphere,
+    Cube,
+    Grid
 };
+
+enum class EmissionMode
+{
+    Volume, // Emit uniformly inside boundary
+    Surface  // Emit uniformly on boundary/surface
+};
+
 
 enum class ArtistPreset
 {
@@ -38,10 +48,21 @@ struct SimulationSettings
     float emitterY = 360.0f;
     float emitterZ = 0.0f;
     EmitterShape shape = EmitterShape::Point;
+    EmissionMode emissionMode = EmissionMode::Volume;
     float emitRadius = 50.0f;
     float emitWidth = 100.0f;
     float emitHeight = 100.0f;
     float emitDepth = 100.0f;
+    float emitCubeSize = 100.0f;
+    
+    int gridColumns = 10;
+    int gridRows = 10;
+    int gridSlices = 1;
+    float gridSpacingX = 20.0f;
+    float gridSpacingY = 20.0f;
+    float gridSpacingZ = 20.0f;
+
+    bool showVisualGrid = true;
 
     float spawnRate = 100.0f; // particles/sec
     int burstCount = 0;
