@@ -68,6 +68,7 @@ struct SimulationSettings
     int burstCount = 0;
     int particleCount = 1000000; // max active cap
     bool paused = false;
+    float timeScale = 1.0f;
 
     // Physics
     float gravity = 0.0f;
@@ -141,6 +142,7 @@ inline bool operator==(const SimulationSettings& a, const SimulationSettings& b)
     if (a.burstCount != b.burstCount) return false;
     if (a.particleCount != b.particleCount) return false;
     if (a.paused != b.paused) return false;
+    if (a.timeScale != b.timeScale) return false;
     if (a.gravity != b.gravity) return false;
     if (a.windX != b.windX) return false;
     if (a.windY != b.windY) return false;

@@ -28,6 +28,8 @@ public:
     std::size_t maxParticles = 0;
 
     std::size_t GetActiveCount() const { return maxParticles - h_deadCount; }
+    float GetSimulationTime() const { return simulationTime; }
+    void SetSimulationTime(float t) { simulationTime = t; }
 
     ~ParticleSystem();
 
