@@ -1,6 +1,7 @@
 #include "GpuRenderer.h"
 #include "ParticleSystem.h"
 #include "InstanceData.h"
+#include "Camera.h"
 
 // GLEW must be included before any other GL headers
 #include <GL/glew.h>
@@ -84,6 +85,29 @@ void main()
 }
 )glsl";
 
+static const char* kOutlineVertexShaderSrc = R"glsl(
+#version 330 core
+layout(location = 0) in vec3 a_Pos;
+uniform mat4 u_Model;
+uniform mat4 u_View;
+uniform mat4 u_Proj;
+void main()
+{
+    gl_Position = u_Proj * u_View * u_Model * vec4(a_Pos, 1.0);
+}
+)glsl";
+
+static const char* kOutlineFragmentShaderSrc = R"glsl(
+#version 330 core
+out vec4 FragColor;
+uniform vec4 u_Color;
+void main()
+{
+    FragColor = u_Color;
+}
+)glsl";
+
+
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -121,6 +145,14 @@ GpuRenderer::~GpuRenderer()
     if (m_gridVbo)       glDeleteBuffers(1, &m_gridVbo);
     if (m_gridVao)       glDeleteVertexArrays(1, &m_gridVao);
     if (m_gridShaderProgram) glDeleteProgram(m_gridShaderProgram);
+
+    if (m_outlineBoxVbo) glDeleteBuffers(1, &m_outlineBoxVbo);
+    if (m_outlineBoxVao) glDeleteVertexArrays(1, &m_outlineBoxVao);
+    if (m_outlineCircleVbo) glDeleteBuffers(1, &m_outlineCircleVbo);
+    if (m_outlineCircleVao) glDeleteVertexArrays(1, &m_outlineCircleVao);
+    if (m_outlineSphereVbo) glDeleteBuffers(1, &m_outlineSphereVbo);
+    if (m_outlineSphereVao) glDeleteVertexArrays(1, &m_outlineSphereVao);
+    if (m_outlineShaderProgram) glDeleteProgram(m_outlineShaderProgram);
 }
 
 bool GpuRenderer::Init(sf::RenderWindow& window, int maxParticles)
@@ -232,6 +264,7 @@ bool GpuRenderer::Init(sf::RenderWindow& window, int maxParticles)
         return false;
 
     SetupGrid();
+    SetupOutlines();
 
     m_initialized = true;
     printf("[GpuRenderer] Initialized — CUDA-GL interop active, max %d particles (3D Zero-Sync)\n",
@@ -320,6 +353,103 @@ void GpuRenderer::SetupGrid()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
+void GpuRenderer::SetupOutlines()
+{
+    // Compile outline shaders
+    GLuint vert = CompileShader(GL_VERTEX_SHADER, kOutlineVertexShaderSrc);
+    GLuint frag = CompileShader(GL_FRAGMENT_SHADER, kOutlineFragmentShaderSrc);
+    if (!vert || !frag) return;
+
+    m_outlineShaderProgram = glCreateProgram();
+    glAttachShader(m_outlineShaderProgram, vert);
+    glAttachShader(m_outlineShaderProgram, frag);
+    glLinkProgram(m_outlineShaderProgram);
+    glDeleteShader(vert);
+    glDeleteShader(frag);
+
+    // ── Setup Box Outline VBO/VAO ──
+    float box[72] = {
+        -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,
+         0.5f, -0.5f, -0.5f,  0.5f,  0.5f, -0.5f,
+         0.5f,  0.5f, -0.5f, -0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f, -0.5f, -0.5f, -0.5f,
+        
+        -0.5f, -0.5f,  0.5f,  0.5f, -0.5f,  0.5f,
+         0.5f, -0.5f,  0.5f,  0.5f,  0.5f,  0.5f,
+         0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f, -0.5f, -0.5f,  0.5f,
+        
+        -0.5f, -0.5f, -0.5f, -0.5f, -0.5f,  0.5f,
+         0.5f, -0.5f, -0.5f,  0.5f, -0.5f,  0.5f,
+         0.5f,  0.5f, -0.5f,  0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f, -0.5f, -0.5f,  0.5f,  0.5f
+    };
+
+    glGenVertexArrays(1, &m_outlineBoxVao);
+    glBindVertexArray(m_outlineBoxVao);
+    glGenBuffers(1, &m_outlineBoxVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m_outlineBoxVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(box), box, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+
+    // ── Setup Circle Outline VBO/VAO ──
+    std::vector<float> circle;
+    for (int i = 0; i < 64; ++i)
+    {
+        float theta = 2.0f * 3.14159265f * static_cast<float>(i) / 64.0f;
+        circle.push_back(std::cos(theta));
+        circle.push_back(std::sin(theta));
+        circle.push_back(0.0f);
+    }
+
+    glGenVertexArrays(1, &m_outlineCircleVao);
+    glBindVertexArray(m_outlineCircleVao);
+    glGenBuffers(1, &m_outlineCircleVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m_outlineCircleVbo);
+    glBufferData(GL_ARRAY_BUFFER, circle.size() * sizeof(float), circle.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+
+    // ── Setup Sphere Outline VBO/VAO ──
+    std::vector<float> sphere;
+    // XY
+    for (int i = 0; i < 64; ++i)
+    {
+        float theta = 2.0f * 3.14159265f * static_cast<float>(i) / 64.0f;
+        sphere.push_back(std::cos(theta));
+        sphere.push_back(std::sin(theta));
+        sphere.push_back(0.0f);
+    }
+    // YZ
+    for (int i = 0; i < 64; ++i)
+    {
+        float theta = 2.0f * 3.14159265f * static_cast<float>(i) / 64.0f;
+        sphere.push_back(0.0f);
+        sphere.push_back(std::cos(theta));
+        sphere.push_back(std::sin(theta));
+    }
+    // XZ
+    for (int i = 0; i < 64; ++i)
+    {
+        float theta = 2.0f * 3.14159265f * static_cast<float>(i) / 64.0f;
+        sphere.push_back(std::cos(theta));
+        sphere.push_back(0.0f);
+        sphere.push_back(std::sin(theta));
+    }
+
+    glGenVertexArrays(1, &m_outlineSphereVao);
+    glBindVertexArray(m_outlineSphereVao);
+    glGenBuffers(1, &m_outlineSphereVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m_outlineSphereVbo);
+    glBufferData(GL_ARRAY_BUFFER, sphere.size() * sizeof(float), sphere.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const float* viewMatrix, const float* projMatrix, const struct SimulationSettings& settings)
 {
     if (!m_initialized) return;
@@ -366,6 +496,87 @@ void GpuRenderer::Draw(sf::RenderWindow& window, const ParticleSystem& ps, const
         glBindVertexArray(m_gridVao);
         glDrawArrays(GL_LINES, 0, m_gridVertexCount);
         glBindVertexArray(0);
+        glUseProgram(0);
+    }
+
+    // ── Render visual shape outlines (if not Point or Grid) ──
+    if (settings.shape != EmitterShape::Point && settings.shape != EmitterShape::Grid)
+    {
+        glUseProgram(m_outlineShaderProgram);
+        GLint modelLoc = glGetUniformLocation(m_outlineShaderProgram, "u_Model");
+        GLint viewLoc = glGetUniformLocation(m_outlineShaderProgram, "u_View");
+        GLint projLoc = glGetUniformLocation(m_outlineShaderProgram, "u_Proj");
+        GLint colorLoc = glGetUniformLocation(m_outlineShaderProgram, "u_Color");
+
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, viewMatrix);
+        glUniformMatrix4fv(projLoc, 1, GL_FALSE, projMatrix);
+        
+        // Blender-style active selection orange: (1.0f, 0.5f, 0.0f, 1.0f)
+        glUniform4f(colorLoc, 1.0f, 0.5f, 0.0f, 1.0f);
+
+        float sx = 1.0f, sy = 1.0f, sz = 1.0f;
+        uint32_t activeVao = 0;
+        GLenum drawMode = GL_LINES;
+        int vertexCount = 0;
+
+        if (settings.shape == EmitterShape::Circle)
+        {
+            sx = settings.emitRadius;
+            sy = settings.emitRadius;
+            sz = 1.0f;
+            activeVao = m_outlineCircleVao;
+            drawMode = GL_LINE_LOOP;
+            vertexCount = 64;
+        }
+        else if (settings.shape == EmitterShape::Sphere)
+        {
+            sx = settings.emitRadius;
+            sy = settings.emitRadius;
+            sz = settings.emitRadius;
+            activeVao = m_outlineSphereVao;
+            drawMode = GL_LINE_LOOP;
+            vertexCount = 64;
+        }
+        else if (settings.shape == EmitterShape::Box)
+        {
+            sx = settings.emitWidth;
+            sy = settings.emitHeight;
+            sz = settings.emitDepth;
+            activeVao = m_outlineBoxVao;
+            drawMode = GL_LINES;
+            vertexCount = 24;
+        }
+        else if (settings.shape == EmitterShape::Cube)
+        {
+            sx = settings.emitCubeSize;
+            sy = settings.emitCubeSize;
+            sz = settings.emitCubeSize;
+            activeVao = m_outlineBoxVao;
+            drawMode = GL_LINES;
+            vertexCount = 24;
+        }
+
+        if (activeVao != 0)
+        {
+            Mat4 modelMat = Mat4::Multiply(
+                Mat4::Translate(settings.emitterX, settings.emitterY, settings.emitterZ),
+                Mat4::Scale(sx, sy, sz)
+            );
+            glUniformMatrix4fv(modelLoc, 1, GL_FALSE, modelMat.Ptr());
+
+            glBindVertexArray(activeVao);
+            if (settings.shape == EmitterShape::Sphere)
+            {
+                glDrawArrays(GL_LINE_LOOP, 0, 64);
+                glDrawArrays(GL_LINE_LOOP, 64, 64);
+                glDrawArrays(GL_LINE_LOOP, 128, 64);
+            }
+            else
+            {
+                glDrawArrays(drawMode, 0, vertexCount);
+            }
+            glBindVertexArray(0);
+        }
         glUseProgram(0);
     }
 

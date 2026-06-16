@@ -128,6 +128,10 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
     p.y = d_Settings.emitterY;
     p.z = d_Settings.emitterZ;
 
+    float normalX = 0.0f;
+    float normalY = 1.0f;
+    float normalZ = 0.0f;
+
     if (d_Settings.shape == EmitterShape::Circle)
     {
         float angle = r01(0) * 2.0f * M_PI;
@@ -135,6 +139,12 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
         if (d_Settings.emissionMode == EmissionMode::Volume)
         {
             radius *= sqrtf(r01(1));
+        }
+        else
+        {
+            normalX = cosf(angle);
+            normalY = sinf(angle);
+            normalZ = 0.0f;
         }
         p.x += cosf(angle) * radius;
         p.y += sinf(angle) * radius;
@@ -161,23 +171,35 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
             if (rVal < areaX)
             {
                 // Left or Right face
-                p.x += (r01(1) < 0.5f ? -0.5f : 0.5f) * w;
+                float side = (r01(1) < 0.5f ? -0.5f : 0.5f);
+                p.x += side * w;
                 p.y += r11(12) * (h * 0.5f);
                 p.z += r11(14) * (d * 0.5f);
+                normalX = (side < 0.0f ? -1.0f : 1.0f);
+                normalY = 0.0f;
+                normalZ = 0.0f;
             }
             else if (rVal < areaX + areaY)
             {
                 // Bottom or Top face
+                float side = (r01(1) < 0.5f ? -0.5f : 0.5f);
                 p.x += r11(12) * (w * 0.5f);
-                p.y += (r01(1) < 0.5f ? -0.5f : 0.5f) * h;
+                p.y += side * h;
                 p.z += r11(14) * (d * 0.5f);
+                normalX = 0.0f;
+                normalY = (side < 0.0f ? -1.0f : 1.0f);
+                normalZ = 0.0f;
             }
             else
             {
                 // Back or Front face
+                float side = (r01(1) < 0.5f ? -0.5f : 0.5f);
                 p.x += r11(12) * (w * 0.5f);
                 p.y += r11(14) * (h * 0.5f);
-                p.z += (r01(1) < 0.5f ? -0.5f : 0.5f) * d;
+                p.z += side * d;
+                normalX = 0.0f;
+                normalY = 0.0f;
+                normalZ = (side < 0.0f ? -1.0f : 1.0f);
             }
         }
     }
@@ -193,12 +215,12 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
         else // Surface mode (6 equal-area faces)
         {
             int face = static_cast<int>(r01(0) * 6.0f);
-            if (face == 0)      { p.x += -0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
-            else if (face == 1) { p.x +=  0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
-            else if (face == 2) { p.y += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
-            else if (face == 3) { p.y +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); }
-            else if (face == 4) { p.z += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); }
-            else                { p.z +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); }
+            if (face == 0)      { p.x += -0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX = -1.0f; normalY = 0.0f; normalZ = 0.0f; }
+            else if (face == 1) { p.x +=  0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX =  1.0f; normalY = 0.0f; normalZ = 0.0f; }
+            else if (face == 2) { p.y += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX = 0.0f; normalY = -1.0f; normalZ = 0.0f; }
+            else if (face == 3) { p.y +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX = 0.0f; normalY =  1.0f; normalZ = 0.0f; }
+            else if (face == 4) { p.z += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); normalX = 0.0f; normalY = 0.0f; normalZ = -1.0f; }
+            else                { p.z +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); normalX = 0.0f; normalY = 0.0f; normalZ =  1.0f; }
         }
     }
     else if (d_Settings.shape == EmitterShape::Sphere)
@@ -216,6 +238,12 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
         {
             // Volumetric density correction: cube root of uniform random
             r *= powf(r01(12), 1.0f / 3.0f);
+        }
+        else
+        {
+            normalX = dx;
+            normalY = dy;
+            normalZ = dz;
         }
         p.x += dx * r;
         p.y += dy * r;
@@ -237,9 +265,23 @@ __global__ void SpawnParticlesKernel(Particle* particles, const float* randData,
         p.z += (iz - (slices - 1) * 0.5f) * d_Settings.gridSpacingZ;
     }
 
-    p.vx = d_Settings.velocityX + r11(2) * d_Settings.velocityVarianceX;
-    p.vy = d_Settings.velocityY + r11(3) * d_Settings.velocityVarianceY;
-    p.vz = d_Settings.velocityZ + r11(13) * d_Settings.velocityVarianceZ;
+    float vx_std = d_Settings.velocityX + r11(2) * d_Settings.velocityVarianceX;
+    float vy_std = d_Settings.velocityY + r11(3) * d_Settings.velocityVarianceY;
+    float vz_std = d_Settings.velocityZ + r11(13) * d_Settings.velocityVarianceZ;
+
+    if (d_Settings.emissionMode == EmissionMode::Surface && d_Settings.shape != EmitterShape::Point && d_Settings.shape != EmitterShape::Grid)
+    {
+        float speed = sqrtf(vx_std * vx_std + vy_std * vy_std + vz_std * vz_std);
+        p.vx = normalX * speed;
+        p.vy = normalY * speed;
+        p.vz = normalZ * speed;
+    }
+    else
+    {
+        p.vx = vx_std;
+        p.vy = vy_std;
+        p.vz = vz_std;
+    }
 
     float lifeVar = r11(4) * d_Settings.lifetimeRandomness * d_Settings.particleLifetime;
     p.maxLifetime = d_Settings.particleLifetime + lifeVar;
@@ -312,6 +354,75 @@ __global__ void UpdateParticlesKernel(Particle* particles, int maxParticles, int
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.z += p.vz * dt;
+
+    // Boundary Confinement (Volume mode acts as a boundary box/sphere/circle)
+    if (d_Settings.emissionMode == EmissionMode::Volume)
+    {
+        if (d_Settings.shape == EmitterShape::Box || d_Settings.shape == EmitterShape::Cube)
+        {
+            float w = (d_Settings.shape == EmitterShape::Cube) ? d_Settings.emitCubeSize : d_Settings.emitWidth;
+            float h = (d_Settings.shape == EmitterShape::Cube) ? d_Settings.emitCubeSize : d_Settings.emitHeight;
+            float d = (d_Settings.shape == EmitterShape::Cube) ? d_Settings.emitCubeSize : d_Settings.emitDepth;
+
+            float minX = d_Settings.emitterX - w * 0.5f;
+            float maxX = d_Settings.emitterX + w * 0.5f;
+            float minY = d_Settings.emitterY - h * 0.5f;
+            float maxY = d_Settings.emitterY + h * 0.5f;
+            float minZ = d_Settings.emitterZ - d * 0.5f;
+            float maxZ = d_Settings.emitterZ + d * 0.5f;
+
+            if (p.x < minX) { p.x = minX; p.vx = -p.vx * 0.8f; }
+            if (p.x > maxX) { p.x = maxX; p.vx = -p.vx * 0.8f; }
+            if (p.y < minY) { p.y = minY; p.vy = -p.vy * 0.8f; }
+            if (p.y > maxY) { p.y = maxY; p.vy = -p.vy * 0.8f; }
+            if (p.z < minZ) { p.z = minZ; p.vz = -p.vz * 0.8f; }
+            if (p.z > maxZ) { p.z = maxZ; p.vz = -p.vz * 0.8f; }
+        }
+        else if (d_Settings.shape == EmitterShape::Circle)
+        {
+            float dx = p.x - d_Settings.emitterX;
+            float dy = p.y - d_Settings.emitterY;
+            float dist = sqrtf(dx * dx + dy * dy);
+            float R = d_Settings.emitRadius;
+            if (dist > R && dist > 0.0f)
+            {
+                float nx = dx / dist;
+                float ny = dy / dist;
+                
+                // Reflection: V_new = V - 2(V.N)N
+                float dotVal = p.vx * nx + p.vy * ny;
+                p.vx = (p.vx - 2.0f * dotVal * nx) * 0.8f;
+                p.vy = (p.vy - 2.0f * dotVal * ny) * 0.8f;
+                
+                p.x = d_Settings.emitterX + nx * R;
+                p.y = d_Settings.emitterY + ny * R;
+            }
+        }
+        else if (d_Settings.shape == EmitterShape::Sphere)
+        {
+            float dx = p.x - d_Settings.emitterX;
+            float dy = p.y - d_Settings.emitterY;
+            float dz = p.z - d_Settings.emitterZ;
+            float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+            float R = d_Settings.emitRadius;
+            if (dist > R && dist > 0.0f)
+            {
+                float nx = dx / dist;
+                float ny = dy / dist;
+                float nz = dz / dist;
+                
+                // Reflection
+                float dotVal = p.vx * nx + p.vy * ny + p.vz * nz;
+                p.vx = (p.vx - 2.0f * dotVal * nx) * 0.8f;
+                p.vy = (p.vy - 2.0f * dotVal * ny) * 0.8f;
+                p.vz = (p.vz - 2.0f * dotVal * nz) * 0.8f;
+                
+                p.x = d_Settings.emitterX + nx * R;
+                p.y = d_Settings.emitterY + ny * R;
+                p.z = d_Settings.emitterZ + nz * R;
+            }
+        }
+    }
 
     p.rotation += p.angularVelocity * dt;
 

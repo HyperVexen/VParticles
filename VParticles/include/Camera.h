@@ -76,6 +76,26 @@ struct Mat4
         return r;
     }
 
+    static Mat4 Translate(float tx, float ty, float tz)
+    {
+        Mat4 r = Identity();
+        r.m[12] = tx;
+        r.m[13] = ty;
+        r.m[14] = tz;
+        return r;
+    }
+
+    static Mat4 Scale(float sx, float sy, float sz)
+    {
+        Mat4 r;
+        std::memset(r.m, 0, sizeof(r.m));
+        r.m[0] = sx;
+        r.m[5] = sy;
+        r.m[10] = sz;
+        r.m[15] = 1.0f;
+        return r;
+    }
+
     const float* Ptr() const { return m; }
 };
 
@@ -128,5 +148,24 @@ struct Camera
         const float limit = 89.0f * 3.14159265f / 180.0f;
         if (pitch >  limit) pitch =  limit;
         if (pitch < -limit) pitch = -limit;
+    }
+
+    void Pan(float dx, float dy)
+    {
+        // Camera local Right vector
+        float rx = std::cos(yaw);
+        float ry = 0.0f;
+        float rz = -std::sin(yaw);
+
+        // Camera local Up vector
+        float ux = -std::sin(yaw) * std::sin(pitch);
+        float uy = std::cos(pitch);
+        float uz = -std::cos(yaw) * std::sin(pitch);
+
+        float factor = 0.002f * distance;
+
+        targetX -= rx * dx * factor + ux * dy * factor;
+        targetY -= ry * dx * factor + uy * dy * factor;
+        targetZ -= rz * dx * factor + uz * dy * factor;
     }
 };

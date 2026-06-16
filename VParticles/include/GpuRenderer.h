@@ -36,6 +36,7 @@ private:
     bool CompileShaders();
     void SetupVAO();
     void SetupGrid();
+    void SetupOutlines();
 
     // OpenGL objects
     uint32_t m_vao           = 0;
@@ -49,6 +50,15 @@ private:
     uint32_t m_gridVbo           = 0;
     uint32_t m_gridShaderProgram = 0;
     int      m_gridVertexCount   = 0;
+
+    // Visual Shape Outline rendering objects
+    uint32_t m_outlineShaderProgram = 0;
+    uint32_t m_outlineBoxVao         = 0;
+    uint32_t m_outlineBoxVbo         = 0;
+    uint32_t m_outlineCircleVao      = 0;
+    uint32_t m_outlineCircleVbo      = 0;
+    uint32_t m_outlineSphereVao      = 0;
+    uint32_t m_outlineSphereVbo      = 0;
 
     // CUDA-GL interop handle (opaque — actually cudaGraphicsResource_t)
     void* m_cudaResource = nullptr;

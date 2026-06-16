@@ -244,8 +244,8 @@ int main(int argc, char** argv)
             }
             else if (const auto* pressed = event->getIf<sf::Event::MouseButtonPressed>())
             {
-                // Only start orbit if right mouse button and not over ImGui
-                if (pressed->button == sf::Mouse::Button::Right && !ImGui::GetIO().WantCaptureMouse)
+                // Only start dragging if middle mouse button and not over ImGui
+                if (pressed->button == sf::Mouse::Button::Middle && !ImGui::GetIO().WantCaptureMouse)
                 {
                     isDragging = true;
                     lastMousePos = pressed->position;
@@ -262,9 +262,16 @@ int main(int argc, char** argv)
                     sf::Vector2i delta = moved->position - lastMousePos;
                     lastMousePos = moved->position;
 
-                    camera.yaw   += static_cast<float>(delta.x) * 0.005f;
-                    camera.pitch += static_cast<float>(delta.y) * 0.005f;
-                    camera.ClampPitch();
+                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift))
+                    {
+                        camera.Pan(static_cast<float>(delta.x), static_cast<float>(delta.y));
+                    }
+                    else
+                    {
+                        camera.yaw   += static_cast<float>(delta.x) * 0.005f;
+                        camera.pitch += static_cast<float>(delta.y) * 0.005f;
+                        camera.ClampPitch();
+                    }
                 }
             }
             else if (const auto* scrolled = event->getIf<sf::Event::MouseWheelScrolled>())
