@@ -1,506 +1,585 @@
-#include "ParticleSystem.h"
-#include <cmath>
+#include "VParticles/ParticleSystem.h"
+
+#include "VParticles/CudaCheck.h"
+
+#include <cub/cub.cuh>
+
 #include <algorithm>
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <curand_kernel.h>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846f
-#endif
+namespace vparticles {
+namespace {
 
-__constant__ SimulationSettings d_Settings;
+constexpr uint32_t kThreadsPerBlock = 256;
+constexpr uint32_t kIndexSortOccupancyPercent = 99;
 
-ParticleSystem::~ParticleSystem()
+template <typename T>
+void cudaAlloc(T*& pointer, size_t count)
 {
-    if (particles) cudaFree(particles);
-    if (d_deadIndices) cudaFree(d_deadIndices);
-    if (d_deadCount) cudaFree(d_deadCount);
-    if (h_stagingBuffer) cudaFreeHost(h_stagingBuffer);
-    if (d_randBuffer) cudaFree(d_randBuffer);
-    if (m_stream) cudaStreamDestroy(m_stream);
-    if (m_frameDone) cudaEventDestroy(m_frameDone);
-    if (m_curandGen) curandDestroyGenerator(m_curandGen);
-
-    particles = nullptr;
-    d_deadIndices = nullptr;
-    d_deadCount = nullptr;
-    h_stagingBuffer = nullptr;
-    d_randBuffer = nullptr;
-    m_stream = nullptr;
-    m_frameDone = nullptr;
-    m_curandGen = nullptr;
+    VP_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&pointer), sizeof(T) * count));
 }
 
-__global__ void InitDeadIndicesKernel(int* d_deadIndices, int maxParticles)
+void allocatePool(ParticlePool& pool, uint32_t capacity)
 {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < maxParticles)
-    {
-        d_deadIndices[i] = i; // Slot i is dead and available
+    cudaAlloc(pool.pos, capacity);
+    cudaAlloc(pool.vel, capacity);
+    cudaAlloc(pool.color, capacity);
+    cudaAlloc(pool.age, capacity);
+    cudaAlloc(pool.lifetime, capacity);
+    cudaAlloc(pool.systemId, capacity);
+    pool.activeIndices = nullptr;
+    pool.capacity = capacity;
+    pool.aliveCount = 0;
+}
+
+void releasePool(ParticlePool& pool)
+{
+    cudaFree(pool.pos);
+    cudaFree(pool.vel);
+    cudaFree(pool.color);
+    cudaFree(pool.age);
+    cudaFree(pool.lifetime);
+    cudaFree(pool.systemId);
+    pool = {};
+}
+
+__device__ uint32_t mixBits(uint32_t value)
+{
+    value ^= value >> 16;
+    value *= 0x7FEB352Du;
+    value ^= value >> 15;
+    value *= 0x846CA68Bu;
+    value ^= value >> 16;
+    return value;
+}
+
+__device__ float random01(uint32_t seed, uint32_t particle, uint32_t frame, uint32_t lane)
+{
+    const uint32_t mixed = mixBits(seed ^ (particle * 0x9E3779B9u) ^ (frame * 0x85EBCA6Bu) ^ lane);
+    return static_cast<float>(mixed & 0x00FFFFFFu) * (1.0f / 16777216.0f);
+}
+
+__device__ float randomSigned(uint32_t seed, uint32_t particle, uint32_t frame, uint32_t lane)
+{
+    return random01(seed, particle, frame, lane) * 2.0f - 1.0f;
+}
+
+__global__ void initializeFreeListKernel(uint32_t* freeIndices, uint32_t* freeCount, uint32_t capacity)
+{
+    const uint32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < capacity) {
+        freeIndices[index] = index;
+    }
+
+    if (index == 0) {
+        *freeCount = capacity;
     }
 }
 
-void ParticleSystem::InitializePool(std::size_t maxP)
+struct SpawnCommand {
+    EmitterDesc emitter = {};
+    uint32_t systemId = 0;
+    uint32_t activeStart = 0;
+    uint32_t count = 0;
+};
+
+__device__ uint32_t findSpawnCommand(
+    const SpawnCommand* commands,
+    uint32_t commandCount,
+    uint32_t activeIndex)
 {
-    if (particles)
-    {
-        this->~ParticleSystem();
+    uint32_t first = 0;
+    uint32_t last = commandCount;
+    while (first + 1 < last) {
+        const uint32_t middle = first + (last - first) / 2;
+        if (commands[middle].activeStart <= activeIndex) {
+            first = middle;
+        } else {
+            last = middle;
+        }
     }
-    this->maxParticles = maxP;
-    
-    cudaMalloc(&particles, maxP * sizeof(Particle));
-    cudaMemset(particles, 0, maxP * sizeof(Particle)); // zero out lifetimes
-    
-    cudaMalloc(&d_deadIndices, maxP * sizeof(int));
-    cudaMalloc(&d_deadCount, sizeof(int));
-    
-    int h_maxP = static_cast<int>(maxP);
-    cudaMemcpy(d_deadCount, &h_maxP, sizeof(int), cudaMemcpyHostToDevice);
-    h_deadCount = h_maxP;
 
-    cudaHostAlloc(&h_stagingBuffer, maxP * sizeof(Particle), cudaHostAllocDefault);
-    cudaMalloc(&d_randBuffer, maxP * 24 * sizeof(float)); 
-    
-    cudaStreamCreate(&m_stream);
-    cudaEventCreate(&m_frameDone);
-
-    curandCreateGenerator(&m_curandGen, CURAND_RNG_PSEUDO_XORWOW);
-    curandSetPseudoRandomGeneratorSeed(m_curandGen, 1337);
-
-    int numBlocks = (static_cast<int>(maxP) + 255) / 256;
-    InitDeadIndicesKernel<<<numBlocks, 256, 0, m_stream>>>(d_deadIndices, h_maxP);
+    return first;
 }
 
-void ParticleSystem::Reset(const SimulationSettings& settings)
+__global__ void spawnBatchKernel(
+    ParticlePool pool,
+    uint32_t* activeIndices,
+    uint32_t* freeIndices,
+    uint32_t* freeCount,
+    const SpawnCommand* commands,
+    uint32_t commandCount,
+    uint32_t firstActiveIndex,
+    uint32_t totalSpawn,
+    uint32_t frameIndex,
+    uint32_t seed)
 {
-    simulationTime = 0.0f;
-    spawnAccumulator = 0.0f;
-    burstFired = false;
-    nextParticleId = 0;
-    curandSetPseudoRandomGeneratorSeed(m_curandGen, settings.randomSeed);
-    
-    int h_maxP = static_cast<int>(maxParticles);
-    cudaMemcpyAsync(d_deadCount, &h_maxP, sizeof(int), cudaMemcpyHostToDevice, m_stream);
-    h_deadCount = h_maxP;
-    
-    cudaMemsetAsync(particles, 0, maxParticles * sizeof(Particle), m_stream);
-    
-    int numBlocks = (h_maxP + 255) / 256;
-    InitDeadIndicesKernel<<<numBlocks, 256, 0, m_stream>>>(d_deadIndices, h_maxP);
-}
-
-__device__ float LerpDev(float a, float b, float t)
-{
-    return a + (b - a) * t;
-}
-
-__device__ CudaColor LerpColorDev(const CudaColor& a, const CudaColor& b, float t)
-{
-    return CudaColor(
-        static_cast<std::uint8_t>(a.r + (b.r - a.r) * t),
-        static_cast<std::uint8_t>(a.g + (b.g - a.g) * t),
-        static_cast<std::uint8_t>(a.b + (b.b - a.b) * t),
-        static_cast<std::uint8_t>(a.a + (b.a - a.a) * t)
-    );
-}
-
-__global__ void SpawnParticlesKernel(Particle* particles, const float* randData, int spawnCount, int* d_deadIndices, int* d_deadCount, uint32_t baseId)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= spawnCount) return;
-
-    int deadIdx = atomicSub(d_deadCount, 1) - 1;
-    if (deadIdx < 0) {
-        atomicAdd(d_deadCount, 1); // undo
-        return; // out of slots
-    }
-
-    int slot = d_deadIndices[deadIdx];
-    int rIdx = idx * 24;
-    Particle& p = particles[slot];
-    p.id = baseId + idx;
-
-    auto r01 = [&](int offset) { return randData[rIdx + offset]; };
-    auto r11 = [&](int offset) { return randData[rIdx + offset] * 2.0f - 1.0f; };
-
-    p.x = d_Settings.emitterX;
-    p.y = d_Settings.emitterY;
-    p.z = d_Settings.emitterZ;
-
-    float normalX = 0.0f;
-    float normalY = 1.0f;
-    float normalZ = 0.0f;
-
-    if (d_Settings.shape == EmitterShape::Circle)
-    {
-        float angle = r01(0) * 2.0f * M_PI;
-        float radius = d_Settings.emitRadius;
-        if (d_Settings.emissionMode == EmissionMode::Volume)
-        {
-            radius *= sqrtf(r01(1));
-        }
-        else
-        {
-            normalX = cosf(angle);
-            normalY = sinf(angle);
-            normalZ = 0.0f;
-        }
-        p.x += cosf(angle) * radius;
-        p.y += sinf(angle) * radius;
-    }
-    else if (d_Settings.shape == EmitterShape::Box)
-    {
-        if (d_Settings.emissionMode == EmissionMode::Volume)
-        {
-            p.x += r11(0) * (d_Settings.emitWidth * 0.5f);
-            p.y += r11(1) * (d_Settings.emitHeight * 0.5f);
-            p.z += r11(12) * (d_Settings.emitDepth * 0.5f);
-        }
-        else // Surface mode
-        {
-            float w = d_Settings.emitWidth;
-            float h = d_Settings.emitHeight;
-            float d = d_Settings.emitDepth;
-            float areaX = h * d;
-            float areaY = w * d;
-            float areaZ = w * h;
-            float totalArea = areaX + areaY + areaZ;
-
-            float rVal = r01(0) * totalArea;
-            if (rVal < areaX)
-            {
-                // Left or Right face
-                float side = (r01(1) < 0.5f ? -0.5f : 0.5f);
-                p.x += side * w;
-                p.y += r11(12) * (h * 0.5f);
-                p.z += r11(14) * (d * 0.5f);
-                normalX = (side < 0.0f ? -1.0f : 1.0f);
-                normalY = 0.0f;
-                normalZ = 0.0f;
-            }
-            else if (rVal < areaX + areaY)
-            {
-                // Bottom or Top face
-                float side = (r01(1) < 0.5f ? -0.5f : 0.5f);
-                p.x += r11(12) * (w * 0.5f);
-                p.y += side * h;
-                p.z += r11(14) * (d * 0.5f);
-                normalX = 0.0f;
-                normalY = (side < 0.0f ? -1.0f : 1.0f);
-                normalZ = 0.0f;
-            }
-            else
-            {
-                // Back or Front face
-                float side = (r01(1) < 0.5f ? -0.5f : 0.5f);
-                p.x += r11(12) * (w * 0.5f);
-                p.y += r11(14) * (h * 0.5f);
-                p.z += side * d;
-                normalX = 0.0f;
-                normalY = 0.0f;
-                normalZ = (side < 0.0f ? -1.0f : 1.0f);
-            }
-        }
-    }
-    else if (d_Settings.shape == EmitterShape::Cube)
-    {
-        float s = d_Settings.emitCubeSize;
-        if (d_Settings.emissionMode == EmissionMode::Volume)
-        {
-            p.x += r11(0) * (s * 0.5f);
-            p.y += r11(1) * (s * 0.5f);
-            p.z += r11(12) * (s * 0.5f);
-        }
-        else // Surface mode (6 equal-area faces)
-        {
-            int face = static_cast<int>(r01(0) * 6.0f);
-            if (face == 0)      { p.x += -0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX = -1.0f; normalY = 0.0f; normalZ = 0.0f; }
-            else if (face == 1) { p.x +=  0.5f * s; p.y += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX =  1.0f; normalY = 0.0f; normalZ = 0.0f; }
-            else if (face == 2) { p.y += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX = 0.0f; normalY = -1.0f; normalZ = 0.0f; }
-            else if (face == 3) { p.y +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.z += r11(12) * (s * 0.5f); normalX = 0.0f; normalY =  1.0f; normalZ = 0.0f; }
-            else if (face == 4) { p.z += -0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); normalX = 0.0f; normalY = 0.0f; normalZ = -1.0f; }
-            else                { p.z +=  0.5f * s; p.x += r11(1) * (s * 0.5f); p.y += r11(12) * (s * 0.5f); normalX = 0.0f; normalY = 0.0f; normalZ =  1.0f; }
-        }
-    }
-    else if (d_Settings.shape == EmitterShape::Sphere)
-    {
-        // Uniform direction vector on sphere
-        float zVal = r11(0); // [-1, 1]
-        float phi = r01(1) * 2.0f * M_PI;
-        float rDir = sqrtf(fmaxf(1.0f - zVal * zVal, 0.0f));
-        float dx = rDir * cosf(phi);
-        float dy = rDir * sinf(phi);
-        float dz = zVal;
-
-        float r = d_Settings.emitRadius;
-        if (d_Settings.emissionMode == EmissionMode::Volume)
-        {
-            // Volumetric density correction: cube root of uniform random
-            r *= powf(r01(12), 1.0f / 3.0f);
-        }
-        else
-        {
-            normalX = dx;
-            normalY = dy;
-            normalZ = dz;
-        }
-        p.x += dx * r;
-        p.y += dy * r;
-        p.z += dz * r;
-    }
-    else if (d_Settings.shape == EmitterShape::Grid)
-    {
-        int cols = d_Settings.gridColumns > 0 ? d_Settings.gridColumns : 1;
-        int rows = d_Settings.gridRows > 0 ? d_Settings.gridRows : 1;
-        int slices = d_Settings.gridSlices > 0 ? d_Settings.gridSlices : 1;
-
-        int gridIndex = p.id;
-        int ix = gridIndex % cols;
-        int iy = (gridIndex / cols) % rows;
-        int iz = (gridIndex / (cols * rows)) % slices;
-
-        p.x += (ix - (cols - 1) * 0.5f) * d_Settings.gridSpacingX;
-        p.y += (iy - (rows - 1) * 0.5f) * d_Settings.gridSpacingY;
-        p.z += (iz - (slices - 1) * 0.5f) * d_Settings.gridSpacingZ;
-    }
-
-    float vx_std = d_Settings.velocityX + r11(2) * d_Settings.velocityVarianceX;
-    float vy_std = d_Settings.velocityY + r11(3) * d_Settings.velocityVarianceY;
-    float vz_std = d_Settings.velocityZ + r11(13) * d_Settings.velocityVarianceZ;
-
-    if (d_Settings.emissionMode == EmissionMode::Surface && d_Settings.shape != EmitterShape::Point && d_Settings.shape != EmitterShape::Grid)
-    {
-        float speed = sqrtf(vx_std * vx_std + vy_std * vy_std + vz_std * vz_std);
-        p.vx = normalX * speed;
-        p.vy = normalY * speed;
-        p.vz = normalZ * speed;
-    }
-    else
-    {
-        p.vx = vx_std;
-        p.vy = vy_std;
-        p.vz = vz_std;
-    }
-
-    float lifeVar = r11(4) * d_Settings.lifetimeRandomness * d_Settings.particleLifetime;
-    p.maxLifetime = d_Settings.particleLifetime + lifeVar;
-    if (p.maxLifetime < 0.05f) p.maxLifetime = 0.05f;
-    p.lifetime = p.maxLifetime;
-
-    float massVar = r11(5) * d_Settings.massRandomness * d_Settings.baseMass;
-    p.mass = d_Settings.baseMass + massVar;
-    if (p.mass < 0.01f) p.mass = 0.01f;
-
-    float sizeVar = r11(6) * d_Settings.sizeRandomness * d_Settings.baseSize;
-    p.baseSize = d_Settings.baseSize + sizeVar;
-    if (p.baseSize < 0.1f) p.baseSize = 0.1f;
-    p.size = p.baseSize;
-
-    p.rotation = d_Settings.initialRotationMin + r01(7) * (d_Settings.initialRotationMax - d_Settings.initialRotationMin);
-    p.angularVelocity = d_Settings.angularVelocityMin + r01(8) * (d_Settings.angularVelocityMax - d_Settings.angularVelocityMin);
-
-    CudaColor baseC = d_Settings.colorGradient[0];
-    float tintVarR = r11(9) * d_Settings.colorRandomness * 255.0f;
-    float tintVarG = r11(10) * d_Settings.colorRandomness * 255.0f;
-    float tintVarB = r11(11) * d_Settings.colorRandomness * 255.0f;
-
-    p.baseR = static_cast<std::uint8_t>(fminf(fmaxf(baseC.r + tintVarR, 0.0f), 255.0f));
-    p.baseG = static_cast<std::uint8_t>(fminf(fmaxf(baseC.g + tintVarG, 0.0f), 255.0f));
-    p.baseB = static_cast<std::uint8_t>(fminf(fmaxf(baseC.b + tintVarB, 0.0f), 255.0f));
-    p.baseA = baseC.a;
-
-    p.r = p.baseR;
-    p.g = p.baseG;
-    p.b = p.baseB;
-    p.a = p.baseA;
-}
-
-__global__ void UpdateParticlesKernel(Particle* particles, int maxParticles, int* d_deadIndices, int* d_deadCount, float dt)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= maxParticles) return;
-
-    Particle& p = particles[i];
-
-    if (p.lifetime <= 0.0f) return; // already dead
-
-    p.lifetime -= dt;
-    if (p.lifetime <= 0.0f)
-    {
-        p.a = 0;
-        int deadIdx = atomicAdd(d_deadCount, 1);
-        d_deadIndices[deadIdx] = i; // append to free list
+    const uint32_t spawnOffset = blockIdx.x * blockDim.x + threadIdx.x;
+    if (spawnOffset >= totalSpawn) {
         return;
     }
 
-    // Physics
-    float forceX = d_Settings.windX;
-    float forceY = d_Settings.windY - d_Settings.gravity;
-    float forceZ = d_Settings.windZ;
-    
-    float ax = forceX / p.mass;
-    float ay = forceY / p.mass;
-    float az = forceZ / p.mass;
+    const uint32_t activeIndex = firstActiveIndex + spawnOffset;
+    const uint32_t commandIndex = findSpawnCommand(commands, commandCount, activeIndex);
+    const SpawnCommand command = commands[commandIndex];
+    const EmitterDesc emitter = command.emitter;
+    const uint32_t freeSlot = atomicSub(freeCount, 1u) - 1u;
+    const uint32_t particleIndex = freeIndices[freeSlot];
+    activeIndices[activeIndex] = particleIndex;
 
-    p.vx += ax * dt;
-    p.vy += ay * dt;
-    p.vz += az * dt;
+    const uint32_t randomIndex = activeIndex;
+    const float vx = emitter.velocity.x + emitter.velocityVariance.x * randomSigned(seed, randomIndex, frameIndex, 1u);
+    const float vy = emitter.velocity.y + emitter.velocityVariance.y * randomSigned(seed, randomIndex, frameIndex, 2u);
+    const float vz = emitter.velocity.z + emitter.velocityVariance.z * randomSigned(seed, randomIndex, frameIndex, 3u);
+    const float lifetimeJitter = emitter.lifetimeVariance * randomSigned(seed, randomIndex, frameIndex, 4u);
+    const float particleLifetime = fmaxf(0.001f, emitter.lifetime * (1.0f + lifetimeJitter));
 
-    p.vx -= p.vx * d_Settings.drag * dt;
-    p.vy -= p.vy * d_Settings.drag * dt;
-    p.vz -= p.vz * d_Settings.drag * dt;
-
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    p.z += p.vz * dt;
-
-    // Boundary Confinement (Volume mode acts as a boundary box/sphere/circle)
-    if (d_Settings.emissionMode == EmissionMode::Volume)
-    {
-        if (d_Settings.shape == EmitterShape::Box || d_Settings.shape == EmitterShape::Cube)
-        {
-            float w = (d_Settings.shape == EmitterShape::Cube) ? d_Settings.emitCubeSize : d_Settings.emitWidth;
-            float h = (d_Settings.shape == EmitterShape::Cube) ? d_Settings.emitCubeSize : d_Settings.emitHeight;
-            float d = (d_Settings.shape == EmitterShape::Cube) ? d_Settings.emitCubeSize : d_Settings.emitDepth;
-
-            float minX = d_Settings.emitterX - w * 0.5f;
-            float maxX = d_Settings.emitterX + w * 0.5f;
-            float minY = d_Settings.emitterY - h * 0.5f;
-            float maxY = d_Settings.emitterY + h * 0.5f;
-            float minZ = d_Settings.emitterZ - d * 0.5f;
-            float maxZ = d_Settings.emitterZ + d * 0.5f;
-
-            if (p.x < minX) { p.x = minX; p.vx = -p.vx * 0.8f; }
-            if (p.x > maxX) { p.x = maxX; p.vx = -p.vx * 0.8f; }
-            if (p.y < minY) { p.y = minY; p.vy = -p.vy * 0.8f; }
-            if (p.y > maxY) { p.y = maxY; p.vy = -p.vy * 0.8f; }
-            if (p.z < minZ) { p.z = minZ; p.vz = -p.vz * 0.8f; }
-            if (p.z > maxZ) { p.z = maxZ; p.vz = -p.vz * 0.8f; }
-        }
-        else if (d_Settings.shape == EmitterShape::Circle)
-        {
-            float dx = p.x - d_Settings.emitterX;
-            float dy = p.y - d_Settings.emitterY;
-            float dist = sqrtf(dx * dx + dy * dy);
-            float R = d_Settings.emitRadius;
-            if (dist > R && dist > 0.0f)
-            {
-                float nx = dx / dist;
-                float ny = dy / dist;
-                
-                // Reflection: V_new = V - 2(V.N)N
-                float dotVal = p.vx * nx + p.vy * ny;
-                p.vx = (p.vx - 2.0f * dotVal * nx) * 0.8f;
-                p.vy = (p.vy - 2.0f * dotVal * ny) * 0.8f;
-                
-                p.x = d_Settings.emitterX + nx * R;
-                p.y = d_Settings.emitterY + ny * R;
-            }
-        }
-        else if (d_Settings.shape == EmitterShape::Sphere)
-        {
-            float dx = p.x - d_Settings.emitterX;
-            float dy = p.y - d_Settings.emitterY;
-            float dz = p.z - d_Settings.emitterZ;
-            float dist = sqrtf(dx * dx + dy * dy + dz * dz);
-            float R = d_Settings.emitRadius;
-            if (dist > R && dist > 0.0f)
-            {
-                float nx = dx / dist;
-                float ny = dy / dist;
-                float nz = dz / dist;
-                
-                // Reflection
-                float dotVal = p.vx * nx + p.vy * ny + p.vz * nz;
-                p.vx = (p.vx - 2.0f * dotVal * nx) * 0.8f;
-                p.vy = (p.vy - 2.0f * dotVal * ny) * 0.8f;
-                p.vz = (p.vz - 2.0f * dotVal * nz) * 0.8f;
-                
-                p.x = d_Settings.emitterX + nx * R;
-                p.y = d_Settings.emitterY + ny * R;
-                p.z = d_Settings.emitterZ + nz * R;
-            }
-        }
-    }
-
-    p.rotation += p.angularVelocity * dt;
-
-    // Visual Evolution
-    float t = 1.0f - (p.lifetime / p.maxLifetime); 
-
-    p.size = p.baseSize * LerpDev(d_Settings.sizeStart, d_Settings.sizeEnd, t);
-
-    CudaColor gradColor;
-    if (t < 0.333333f)
-        gradColor = LerpColorDev(d_Settings.colorGradient[0], d_Settings.colorGradient[1], t * 3.0f);
-    else if (t < 0.666666f)
-        gradColor = LerpColorDev(d_Settings.colorGradient[1], d_Settings.colorGradient[2], (t - 0.333333f) * 3.0f);
-    else
-        gradColor = LerpColorDev(d_Settings.colorGradient[2], d_Settings.colorGradient[3], (t - 0.666666f) * 3.0f);
-
-    p.r = static_cast<std::uint8_t>((p.baseR * gradColor.r) / 255);
-    p.g = static_cast<std::uint8_t>((p.baseG * gradColor.g) / 255);
-    p.b = static_cast<std::uint8_t>((p.baseB * gradColor.b) / 255);
-    p.a = static_cast<std::uint8_t>((p.baseA * gradColor.a) / 255);
+    pool.pos[particleIndex] = make_float4(emitter.position.x, emitter.position.y, emitter.position.z, 1.0f);
+    pool.vel[particleIndex] = make_float4(vx, vy, vz, 0.0f);
+    pool.color[particleIndex] = make_float4(emitter.color.r, emitter.color.g, emitter.color.b, emitter.color.a);
+    pool.age[particleIndex] = 0.0f;
+    pool.lifetime[particleIndex] = particleLifetime;
+    pool.systemId[particleIndex] = command.systemId;
 }
 
-void ParticleSystem::Update(float dt, const SimulationSettings& settings, SimulationStats& stats)
+__global__ void simulateKernel(
+    ParticlePool pool,
+    const uint32_t* activeIndices,
+    uint8_t* aliveFlags,
+    uint32_t* freeIndices,
+    uint32_t* freeCount,
+    uint32_t* deadCount,
+    SimulationSettings settings,
+    float dt,
+    uint32_t count)
 {
-    if (settings.paused) return;
-
-    cudaMemcpyToSymbolAsync(d_Settings, &settings, sizeof(SimulationSettings), 0, cudaMemcpyHostToDevice, m_stream);
-
-    simulationTime += dt;
-    stats.spawnedThisFrame = 0;
-    stats.killedThisFrame = 0;
-
-    int spawnCount = 0;
-
-    if (simulationTime >= settings.startTime && simulationTime <= settings.endTime)
-    {
-        if (!burstFired && settings.burstCount > 0)
-        {
-            spawnCount += settings.burstCount;
-            burstFired = true;
-        }
-
-        if (settings.spawnRate > 0.0f)
-        {
-            spawnAccumulator += settings.spawnRate * dt;
-            int spawnsThisFrame = static_cast<int>(spawnAccumulator);
-            spawnAccumulator -= spawnsThisFrame;
-            spawnCount += spawnsThisFrame;
-        }
+    const uint32_t activeIndex = blockIdx.x * blockDim.x + threadIdx.x;
+    if (activeIndex >= count) {
+        return;
     }
 
-    // Clamp spawn count to available dead slots (h_deadCount is 1 frame behind, which is fine)
-    if (spawnCount > h_deadCount)
-    {
-        spawnCount = h_deadCount;
+    const uint32_t particleIndex = activeIndices[activeIndex];
+    float age = pool.age[particleIndex] + dt;
+    const float lifetime = pool.lifetime[particleIndex];
+    if (age >= lifetime) {
+        pool.age[particleIndex] = age;
+        aliveFlags[activeIndex] = 0;
+        const uint32_t freeSlot = atomicAdd(freeCount, 1u);
+        freeIndices[freeSlot] = particleIndex;
+        atomicAdd(deadCount, 1u);
+        return;
     }
 
-    if (spawnCount > 0)
-    {
-        curandGenerateUniform(m_curandGen, d_randBuffer, spawnCount * 24);
+    float4 velocity = pool.vel[particleIndex];
+    float4 position = pool.pos[particleIndex];
+    const float dragFactor = fmaxf(0.0f, 1.0f - settings.drag * dt);
 
-        int blockSize = 256;
-        int numBlocks = (spawnCount + blockSize - 1) / blockSize;
-        SpawnParticlesKernel<<<numBlocks, blockSize, 0, m_stream>>>(particles, d_randBuffer, spawnCount, d_deadIndices, d_deadCount, nextParticleId);
-        
-        nextParticleId += spawnCount;
-        stats.spawnedThisFrame = spawnCount;
-    }
+    velocity.x = (velocity.x + (settings.gravity.x + settings.wind.x) * dt) * dragFactor;
+    velocity.y = (velocity.y + (settings.gravity.y + settings.wind.y) * dt) * dragFactor;
+    velocity.z = (velocity.z + (settings.gravity.z + settings.wind.z) * dt) * dragFactor;
 
-    // ZERO-SYNC UPDATE
-    int maxP = static_cast<int>(maxParticles);
-    int blockSize = 256;
-    int numBlocks = (maxP + blockSize - 1) / blockSize;
-    
-    UpdateParticlesKernel<<<numBlocks, blockSize, 0, m_stream>>>(particles, maxP, d_deadIndices, d_deadCount, dt);
+    position.x += velocity.x * dt;
+    position.y += velocity.y * dt;
+    position.z += velocity.z * dt;
 
-    // Read back dead count asynchronously for NEXT frame
-    cudaMemcpyAsync(&h_deadCount, d_deadCount, sizeof(int), cudaMemcpyDeviceToHost, m_stream);
-    
-    stats.activeParticles = static_cast<uint32_t>(maxParticles - h_deadCount);
+    float4 color = pool.color[particleIndex];
+    color.w = fmaxf(0.0f, 1.0f - age / lifetime);
+
+    pool.vel[particleIndex] = velocity;
+    pool.pos[particleIndex] = position;
+    pool.color[particleIndex] = color;
+    pool.age[particleIndex] = age;
+    aliveFlags[activeIndex] = 1;
 }
+
+uint32_t blockCount(uint32_t itemCount)
+{
+    return (itemCount + kThreadsPerBlock - 1) / kThreadsPerBlock;
+}
+
+struct EmitterState {
+    EmitterDesc desc = {};
+    float spawnCarry = 0.0f;
+    uint32_t pendingBurst = 0;
+};
+
+} // namespace
+
+struct ParticleSystem::Impl {
+    explicit Impl(uint32_t capacity)
+    {
+        if (capacity == 0) {
+            throw std::invalid_argument("ParticleSystem capacity must be greater than zero");
+        }
+
+        allocatePool(pool, capacity);
+        cudaAlloc(activeIndices, capacity);
+        cudaAlloc(scratchActiveIndices, capacity);
+        cudaAlloc(freeIndices, capacity);
+        cudaAlloc(freeCount, 1);
+        cudaAlloc(aliveFlags, capacity);
+        cudaAlloc(selectedCount, 1);
+        cudaAlloc(deadCount, 1);
+        pool.activeIndices = activeIndices;
+
+        VP_CUDA_CHECK(cudaStreamCreate(&stream));
+        VP_CUDA_CHECK(cudaEventCreate(&frameStart));
+        VP_CUDA_CHECK(cudaEventCreate(&afterSpawn));
+        VP_CUDA_CHECK(cudaEventCreate(&afterSimulate));
+        VP_CUDA_CHECK(cudaEventCreate(&afterCompact));
+
+        stats.capacity = capacity;
+        initializeFreeList();
+    }
+
+    ~Impl()
+    {
+        cudaFree(cubTempStorage);
+        cudaFree(deadCount);
+        cudaFree(selectedCount);
+        cudaFree(aliveFlags);
+        cudaFree(freeCount);
+        cudaFree(freeIndices);
+        cudaFree(spawnCommands);
+        cudaFree(scratchActiveIndices);
+        cudaFree(activeIndices);
+        releasePool(pool);
+
+        cudaEventDestroy(afterCompact);
+        cudaEventDestroy(afterSimulate);
+        cudaEventDestroy(afterSpawn);
+        cudaEventDestroy(frameStart);
+        cudaStreamDestroy(stream);
+    }
+
+    void initializeFreeList()
+    {
+        initializeFreeListKernel<<<blockCount(pool.capacity), kThreadsPerBlock, 0, stream>>>(
+            freeIndices,
+            freeCount,
+            pool.capacity);
+        VP_CUDA_CHECK(cudaGetLastError());
+        VP_CUDA_CHECK(cudaStreamSynchronize(stream));
+        pool.aliveCount = 0;
+        pool.activeIndices = activeIndices;
+        activeIndexOrderDirty = false;
+        freeListMayBeFragmented = false;
+    }
+
+    void selectActiveIndices(uint32_t count)
+    {
+        size_t requestedBytes = 0;
+        VP_CUDA_CHECK(cub::DeviceSelect::Flagged(
+            nullptr,
+            requestedBytes,
+            activeIndices,
+            aliveFlags,
+            scratchActiveIndices,
+            selectedCount,
+            static_cast<int>(count),
+            stream));
+
+        ensureCubStorage(requestedBytes);
+
+        VP_CUDA_CHECK(cub::DeviceSelect::Flagged(
+            cubTempStorage,
+            cubTempStorageBytes,
+            activeIndices,
+            aliveFlags,
+            scratchActiveIndices,
+            selectedCount,
+            static_cast<int>(count),
+            stream));
+    }
+
+    void sortActiveIndices(uint32_t count)
+    {
+        if (count < 2) {
+            return;
+        }
+
+        size_t requestedBytes = 0;
+        VP_CUDA_CHECK(cub::DeviceRadixSort::SortKeys(
+            nullptr,
+            requestedBytes,
+            activeIndices,
+            scratchActiveIndices,
+            static_cast<int>(count),
+            0,
+            sizeof(uint32_t) * 8,
+            stream));
+
+        ensureCubStorage(requestedBytes);
+
+        VP_CUDA_CHECK(cub::DeviceRadixSort::SortKeys(
+            cubTempStorage,
+            cubTempStorageBytes,
+            activeIndices,
+            scratchActiveIndices,
+            static_cast<int>(count),
+            0,
+            sizeof(uint32_t) * 8,
+            stream));
+
+        std::swap(activeIndices, scratchActiveIndices);
+        pool.activeIndices = activeIndices;
+    }
+
+    uint32_t compact(uint32_t count)
+    {
+        if (count == 0) {
+            pool.aliveCount = 0;
+            return 0;
+        }
+
+        uint32_t hostDeadCount = 0;
+        VP_CUDA_CHECK(cudaMemcpyAsync(
+            &hostDeadCount,
+            deadCount,
+            sizeof(uint32_t),
+            cudaMemcpyDeviceToHost,
+            stream));
+        VP_CUDA_CHECK(cudaStreamSynchronize(stream));
+
+        if (hostDeadCount == 0) {
+            pool.aliveCount = count;
+            pool.activeIndices = activeIndices;
+            return 0;
+        }
+
+        selectActiveIndices(count);
+
+        int hostSelectedCount = 0;
+        VP_CUDA_CHECK(cudaMemcpyAsync(
+            &hostSelectedCount,
+            selectedCount,
+            sizeof(int),
+            cudaMemcpyDeviceToHost,
+            stream));
+        VP_CUDA_CHECK(cudaStreamSynchronize(stream));
+
+        std::swap(activeIndices, scratchActiveIndices);
+        pool.activeIndices = activeIndices;
+        pool.aliveCount = static_cast<uint32_t>(std::max(0, hostSelectedCount));
+        return hostDeadCount;
+    }
+
+    void ensureCubStorage(size_t requestedBytes)
+    {
+        if (requestedBytes <= cubTempStorageBytes) {
+            return;
+        }
+
+        cudaFree(cubTempStorage);
+        cubTempStorage = nullptr;
+        cubTempStorageBytes = requestedBytes;
+        VP_CUDA_CHECK(cudaMalloc(&cubTempStorage, cubTempStorageBytes));
+    }
+
+    void ensureSpawnCommandStorage(uint32_t commandCount)
+    {
+        if (commandCount <= spawnCommandCapacity) {
+            return;
+        }
+
+        VP_CUDA_CHECK(cudaFree(spawnCommands));
+        spawnCommands = nullptr;
+        cudaAlloc(spawnCommands, commandCount);
+        spawnCommandCapacity = commandCount;
+    }
+
+    ParticlePool pool = {};
+    uint32_t* activeIndices = nullptr;
+    uint32_t* scratchActiveIndices = nullptr;
+    uint32_t* freeIndices = nullptr;
+    uint8_t* aliveFlags = nullptr;
+    int* selectedCount = nullptr;
+    uint32_t* deadCount = nullptr;
+    uint32_t* freeCount = nullptr;
+    SpawnCommand* spawnCommands = nullptr;
+    uint32_t spawnCommandCapacity = 0;
+    bool activeIndexOrderDirty = false;
+    bool freeListMayBeFragmented = false;
+    void* cubTempStorage = nullptr;
+    size_t cubTempStorageBytes = 0;
+    cudaStream_t stream = nullptr;
+    cudaEvent_t frameStart = nullptr;
+    cudaEvent_t afterSpawn = nullptr;
+    cudaEvent_t afterSimulate = nullptr;
+    cudaEvent_t afterCompact = nullptr;
+    SimulationSettings settings = {};
+    SimulationStats stats = {};
+    std::vector<EmitterState> emitters;
+    std::vector<SpawnCommand> hostSpawnCommands;
+    uint32_t frameIndex = 0;
+};
+
+ParticleSystem::ParticleSystem(uint32_t capacity)
+    : impl_(new Impl(capacity))
+{
+}
+
+ParticleSystem::~ParticleSystem()
+{
+    delete impl_;
+}
+
+uint32_t ParticleSystem::addEmitter(const EmitterDesc& desc)
+{
+    impl_->emitters.push_back(EmitterState{desc});
+    return static_cast<uint32_t>(impl_->emitters.size() - 1);
+}
+
+void ParticleSystem::queueBurst(uint32_t systemId, uint32_t count)
+{
+    if (systemId >= impl_->emitters.size()) {
+        return;
+    }
+
+    impl_->emitters[systemId].pendingBurst += count;
+}
+
+void ParticleSystem::update(float dt)
+{
+    dt = std::max(0.0f, dt);
+
+    SimulationStats nextStats = {};
+    nextStats.capacity = impl_->pool.capacity;
+
+    VP_CUDA_CHECK(cudaEventRecord(impl_->frameStart, impl_->stream));
+
+    const uint32_t simulationCount = impl_->pool.aliveCount;
+    if (simulationCount > 0) {
+        VP_CUDA_CHECK(cudaMemsetAsync(impl_->deadCount, 0, sizeof(uint32_t), impl_->stream));
+        simulateKernel<<<blockCount(simulationCount), kThreadsPerBlock, 0, impl_->stream>>>(
+            impl_->pool,
+            impl_->activeIndices,
+            impl_->aliveFlags,
+            impl_->freeIndices,
+            impl_->freeCount,
+            impl_->deadCount,
+            impl_->settings,
+            dt,
+            simulationCount);
+        VP_CUDA_CHECK(cudaGetLastError());
+    }
+
+    VP_CUDA_CHECK(cudaEventRecord(impl_->afterSimulate, impl_->stream));
+    const uint32_t deadCount = impl_->compact(simulationCount);
+    impl_->freeListMayBeFragmented = impl_->freeListMayBeFragmented || deadCount > 0;
+    const bool shouldRestoreLocality =
+        impl_->activeIndexOrderDirty &&
+        impl_->pool.aliveCount >=
+            (static_cast<uint64_t>(impl_->pool.capacity) * kIndexSortOccupancyPercent) / 100;
+    if (shouldRestoreLocality) {
+        impl_->sortActiveIndices(impl_->pool.aliveCount);
+        impl_->activeIndexOrderDirty = false;
+    }
+    VP_CUDA_CHECK(cudaEventRecord(impl_->afterCompact, impl_->stream));
+
+    uint32_t requestedSpawn = 0;
+    uint32_t spawned = 0;
+    uint32_t writeStart = impl_->pool.aliveCount;
+    uint32_t openSlots = impl_->pool.capacity - impl_->pool.aliveCount;
+    impl_->hostSpawnCommands.clear();
+    impl_->hostSpawnCommands.reserve(impl_->emitters.size());
+
+    for (uint32_t systemId = 0; systemId < impl_->emitters.size(); ++systemId) {
+        EmitterState& emitter = impl_->emitters[systemId];
+        const float exactSpawn = emitter.spawnCarry + std::max(0.0f, emitter.desc.spawnRate) * dt;
+        const uint32_t continuousSpawn = static_cast<uint32_t>(std::floor(exactSpawn));
+        emitter.spawnCarry = exactSpawn - static_cast<float>(continuousSpawn);
+
+        const uint32_t emitterRequest = continuousSpawn + emitter.pendingBurst;
+        emitter.pendingBurst = 0;
+        requestedSpawn += emitterRequest;
+
+        const uint32_t emitterSpawn = std::min(emitterRequest, openSlots);
+        if (emitterSpawn == 0) {
+            continue;
+        }
+
+        impl_->hostSpawnCommands.push_back(SpawnCommand{
+            emitter.desc,
+            systemId,
+            writeStart,
+            emitterSpawn});
+
+        writeStart += emitterSpawn;
+        openSlots -= emitterSpawn;
+        spawned += emitterSpawn;
+    }
+
+    if (!impl_->hostSpawnCommands.empty()) {
+        const uint32_t commandCount = static_cast<uint32_t>(impl_->hostSpawnCommands.size());
+        impl_->ensureSpawnCommandStorage(commandCount);
+        VP_CUDA_CHECK(cudaMemcpyAsync(
+            impl_->spawnCommands,
+            impl_->hostSpawnCommands.data(),
+            sizeof(SpawnCommand) * commandCount,
+            cudaMemcpyHostToDevice,
+            impl_->stream));
+        spawnBatchKernel<<<blockCount(spawned), kThreadsPerBlock, 0, impl_->stream>>>(
+            impl_->pool,
+            impl_->activeIndices,
+            impl_->freeIndices,
+            impl_->freeCount,
+            impl_->spawnCommands,
+            commandCount,
+            impl_->pool.aliveCount,
+            spawned,
+            impl_->frameIndex,
+            impl_->settings.seed);
+        VP_CUDA_CHECK(cudaGetLastError());
+    }
+
+    if (spawned > 0 && impl_->freeListMayBeFragmented) {
+        impl_->activeIndexOrderDirty = true;
+    }
+
+    VP_CUDA_CHECK(cudaEventRecord(impl_->afterSpawn, impl_->stream));
+    VP_CUDA_CHECK(cudaEventSynchronize(impl_->afterSpawn));
+
+    nextStats.requestedSpawn = requestedSpawn;
+    nextStats.spawned = spawned;
+    nextStats.dropped = requestedSpawn - spawned;
+    nextStats.deadCount = deadCount;
+    nextStats.aliveCount = impl_->pool.aliveCount + spawned;
+    impl_->pool.aliveCount = nextStats.aliveCount;
+    VP_CUDA_CHECK(cudaEventElapsedTime(&nextStats.spawnMs, impl_->afterCompact, impl_->afterSpawn));
+    VP_CUDA_CHECK(cudaEventElapsedTime(&nextStats.simulateMs, impl_->frameStart, impl_->afterSimulate));
+    VP_CUDA_CHECK(cudaEventElapsedTime(&nextStats.compactMs, impl_->afterSimulate, impl_->afterCompact));
+    VP_CUDA_CHECK(cudaEventElapsedTime(&nextStats.totalMs, impl_->frameStart, impl_->afterSpawn));
+
+    impl_->stats = nextStats;
+    ++impl_->frameIndex;
+}
+
+void ParticleSystem::reset()
+{
+    impl_->initializeFreeList();
+    impl_->stats = {};
+    impl_->stats.capacity = impl_->pool.capacity;
+    for (EmitterState& emitter : impl_->emitters) {
+        emitter.spawnCarry = 0.0f;
+        emitter.pendingBurst = 0;
+    }
+}
+
+const ParticlePool& ParticleSystem::buffers() const
+{
+    return impl_->pool;
+}
+
+const SimulationStats& ParticleSystem::stats() const
+{
+    return impl_->stats;
+}
+
+} // namespace vparticles
