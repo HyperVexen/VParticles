@@ -6,7 +6,7 @@ Build VParticles as a standalone, high-scale GPU particle simulation engine for 
 
 Target scale: 10M+ live particles on NVIDIA GPUs.
 
-Current implementation status and the latest measured 1M benchmark are recorded in [Project Status Report](docs/PROJECT_STATUS_REPORT.md).
+Current implementation status and the latest validation notes are recorded in [Project Status Report](docs/PROJECT_STATUS_REPORT.md).
 
 ## Core Decisions
 
@@ -46,15 +46,16 @@ Current implementation status and the latest measured 1M benchmark are recorded 
 - Add continuous spawn and burst spawn.
 - Use atomic counters for initial slot allocation.
 - Implement gravity, drag, and Euler integration.
-- Implement kill/compact using `cub::DeviceSelect::Flagged`.
-- Add a CPU-side stats readback path for testing and benchmarks.
+- Implement kill/compact for active-index lifecycle management.
+- Add a stats readback path for testing and benchmarks.
 
 ## Phase 2: Correctness And Profiling
 
-Current measured baseline:
+The previous synchronized 1M ramp baseline must be refreshed after the GPU-resident telemetry rewrite:
 
-- 1M-capacity, 250K particles/second, one-emitter ramp: `1.099 ms` total at frame 239 with 951,364 live particles and no spawn drops.
-- This result is near capacity but is not yet a sustained, full-pool recycle benchmark.
+- Re-run 1M, 5M, and 10M cases through the benchmark matrix.
+- Include one-emitter, eight-emitter, and 64-emitter workloads.
+- Include sustained recycle tests, not only near-capacity ramps.
 
 - Add deterministic spawn randomness using particle id plus frame number.
 - Prefer counter-based randomness such as Philox over persistent RNG state arrays.
@@ -86,7 +87,7 @@ Future grouping work:
   - dead particles removed
   - live particles grouped by `systemId`
 - Use CUB radix sort when grouping is needed.
-- Use CUB select when grouping is not needed.
+- Use block-scan active-list compaction when grouping is not needed.
 - Verify warp divergence in Nsight instead of assuming it.
 
 ## Phase 4: Lifecycle Strategy
@@ -97,24 +98,26 @@ Initial implementation complete:
 - Persistent GPU free-list:
   - death pushes freed indices
   - spawn pops open slots
-- CUB select compacts only `uint32_t` active indices after particle death.
-- A conservative locality-repair sort restores coalesced SoA access at high occupancy.
+- A GPU-resident frame state owns active/free counters and active-list buffer selection.
+- A CUB block-scan compaction kernel compacts only `uint32_t` active indices after particle death.
 
 Next refinement:
 
 - Add a benchmark switch for dense-SoA versus active-index lifecycle strategies.
+- Revisit locality repair and `systemId` grouping as GPU-side sort/group passes after Nsight traces.
 - Choose the default from realistic churn profiles and GPU traces rather than a fixed assumption.
 
-## Next Milestone: GPU-Resident Frame Control
+## Milestone Complete: GPU-Resident Frame Control
 
 - Keep production active counters and lifecycle decisions on the GPU.
 - Move benchmark/debug statistics to delayed staging or a ring-buffer readback path.
 - Remove the per-frame CPU wait from production submission without falling back to a capacity-wide simulation dispatch.
-- Keep the current exact synchronized path available for validation and benchmark comparisons.
+- Keep an exact synchronized boundary available for validation and benchmark final snapshots.
 
 ## Next Milestone: Benchmark Matrix
 
-- Automate 100K, 1M, 5M, and 10M ramp, sustained-recycle, burst, and multi-emitter scenarios.
+- Automate 1M, 5M, and 10M scenarios across 1, 8, and 64 emitters.
+- Include ramp, sustained-recycle, saturation, and burst workloads.
 - Record GPU model, memory use, effective bandwidth, and timing percentiles.
 - Capture Nsight traces before changing lifecycle defaults or adding packed state.
 
@@ -158,10 +161,11 @@ flags: uint8/uint16
 ## Phase 8: Launch Overhead Reduction
 
 - Capture the stable update sequence with CUDA Graphs:
-  - spawn
+  - begin frame
   - simulate
-  - compact/sort
-  - stats
+  - compact/group
+  - reserve/spawn
+  - telemetry
 - Replay graphs for steady-state frames.
 - Rebuild graphs only when pipeline structure changes.
 
@@ -193,8 +197,8 @@ Headless benchmark executable
 + one point emitter
 + spawn kernel
 + simulate kernel
-+ CUB select compaction
-+ CPU stats readback
++ GPU-resident active-list compaction
++ delayed telemetry stats readback
 + benchmark output
 ```
 

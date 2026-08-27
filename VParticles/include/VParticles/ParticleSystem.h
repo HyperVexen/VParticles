@@ -20,7 +20,12 @@ public:
     void update(float dt);
     void reset();
 
+    // Explicit boundary for callers that need an exact host-visible snapshot.
+    // Normal update() submission never waits for the GPU.
+    void synchronize();
+
     const ParticlePool& buffers() const;
+    const GpuParticlePool& gpuBuffers() const;
     const SimulationStats& stats() const;
 
 private:

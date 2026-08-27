@@ -12,31 +12,27 @@ The current engine provides:
 - Deterministic spawn variation without persistent per-particle RNG state.
 - Fused gravity, wind, drag, Euler integration, age, lifetime kill, and alpha fade.
 - Dense active indices plus a persistent GPU free-list for particle lifecycle management.
-- CUB-based active-index compaction and high-occupancy locality repair.
+- GPU-resident active counters and block-scan active-index compaction.
 - A batched spawn-command buffer: one GPU spawn launch per frame, independent of emitter count.
-- A headless benchmark with per-stage GPU timing and lifecycle statistics.
+- A delayed telemetry ring for per-stage GPU timing and lifecycle statistics.
 
-The detailed implementation report and latest benchmark are in [docs/PROJECT_STATUS_REPORT.md](docs/PROJECT_STATUS_REPORT.md). The planned work is in [ROADMAP.md](ROADMAP.md).
+The detailed implementation report and latest validation notes are in [docs/PROJECT_STATUS_REPORT.md](docs/PROJECT_STATUS_REPORT.md). The planned work is in [ROADMAP.md](ROADMAP.md).
 
-## Latest Measured Result
+## Benchmarking Note
 
-The latest recorded 1M-capacity benchmark used one emitter at 250,000 particles/second and a 1/60 second timestep.
+The runtime now keeps frame-control counters on the GPU and publishes host-visible statistics through delayed telemetry. `update()` does not wait for exact per-frame stats. The benchmark executable calls `synchronize()` only at the reporting boundary so the final line is an exact host-visible snapshot.
 
-| Frame | Live particles | Simulate | Lifecycle | Total |
-| --- | ---: | ---: | ---: | ---: |
-| 239 | 951,364 | 0.861 ms | 0.191 ms | 1.099 ms |
-
-This is a near-capacity ramp result, not a substitute for sustained recycle testing. GPU model, clocks, driver version, and effect workload all affect the result.
+Performance numbers should be refreshed with the benchmark matrix after this telemetry rewrite. GPU model, clocks, driver version, and effect workload all affect the result.
 
 ## Architecture
 
 ```text
 simulate active particles
   -> return dead slots to a GPU free-list
-  -> compact active indices when deaths occur
-  -> repair index locality at high occupancy
+  -> compact active indices on the GPU when deaths occur
   -> upload batched spawn commands
-  -> spawn into reclaimed slots
+  -> reserve and spawn into reclaimed slots
+  -> publish delayed telemetry
 ```
 
 Particle attributes stay in stable SoA slots. The active list is compacted as `uint32_t` indices, avoiding a full gather of position, velocity, color, and lifetime data whenever particles die.

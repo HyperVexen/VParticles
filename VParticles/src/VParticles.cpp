@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -30,6 +31,23 @@ float parseFloatArg(const char* value, float fallback)
     char* end = nullptr;
     const float parsed = std::strtof(value, &end);
     return end != value ? parsed : fallback;
+}
+
+void printStats(const vparticles::SimulationStats& stats)
+{
+    std::cout << "frame " << std::setw(4) << stats.frameIndex
+              << " alive=" << std::setw(9) << stats.aliveCount
+              << " spawned=" << std::setw(7) << stats.spawned
+              << " dropped=" << std::setw(7) << stats.dropped
+              << " dead=" << std::setw(7) << stats.deadCount
+              << " spawnMs=" << std::fixed << std::setprecision(3) << stats.spawnMs
+              << " simMs=" << stats.simulateMs
+              << " compactMs=" << stats.compactMs
+              << " totalMs=" << stats.totalMs;
+    if (stats.telemetryLatencyFrames != 0) {
+        std::cout << " lag=" << stats.telemetryLatencyFrames;
+    }
+    std::cout << '\n';
 }
 
 } // namespace
@@ -76,22 +94,23 @@ int main(int argc, char** argv)
                   << " spawnRate=" << spawnRate
                   << " dt=" << dt << "\n\n";
 
+        uint64_t lastReportedFrame = std::numeric_limits<uint64_t>::max();
         for (uint32_t frame = 0; frame < frames; ++frame) {
             system.update(dt);
             const vparticles::SimulationStats& stats = system.stats();
 
-            if (frame % 30 == 0 || frame + 1 == frames) {
-                std::cout << "frame " << std::setw(4) << frame
-                          << " alive=" << std::setw(9) << stats.aliveCount
-                          << " spawned=" << std::setw(7) << stats.spawned
-                          << " dropped=" << std::setw(7) << stats.dropped
-                          << " dead=" << std::setw(7) << stats.deadCount
-                          << " spawnMs=" << std::fixed << std::setprecision(3) << stats.spawnMs
-                          << " simMs=" << stats.simulateMs
-                          << " compactMs=" << stats.compactMs
-                          << " totalMs=" << stats.totalMs
-                          << '\n';
+            if (stats.valid && stats.frameIndex != lastReportedFrame && stats.frameIndex % 30 == 0) {
+                printStats(stats);
+                lastReportedFrame = stats.frameIndex;
             }
+        }
+
+        // This is a benchmark/reporting boundary, not part of update(). It
+        // flushes the final delayed sample so the terminal line is exact.
+        system.synchronize();
+        const vparticles::SimulationStats& finalStats = system.stats();
+        if (finalStats.valid && finalStats.frameIndex != lastReportedFrame) {
+            printStats(finalStats);
         }
 
         return 0;

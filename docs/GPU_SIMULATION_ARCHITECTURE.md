@@ -15,29 +15,34 @@ Primary rules:
 - Prefer one global dispatch per stage over one dispatch per effect.
 - Prefer structure-of-arrays over array-of-structures.
 - Fuse force, integration, age, color, and size work where practical.
-- Avoid CPU readback except for explicit stats, tests, or debugging.
+- Avoid CPU readback in the hot path; use delayed telemetry or explicit validation boundaries.
 - Profile lifecycle management early because compaction can become the largest full-pool pass.
 
 ## Frame Pipeline
 
 ```mermaid
 flowchart LR
-    A["Simulate live particles"] --> B["Kill + select active indices"]
+    A["Begin frame on stream"] --> B["Simulate active list"]
     B --> C["Return dead slots to free-list"]
-    C --> D["Spawn into reclaimed slots"]
-    D -. "next frame" .-> A
-    E["Host spawn command buffer"] --> D
+    C --> D["Compact active indices"]
+    D --> E["Reserve spawn slots"]
+    E --> F["Spawn into reclaimed slots"]
+    F --> G["Snapshot delayed telemetry"]
+    F -. "next frame" .-> A
+    H["Host spawn command buffer"] --> F
 
     subgraph P["Shared particle pool (SoA)"]
         S["position, velocity, color, age, lifetime, systemId"]
     end
 
-    A --- P
-    B --- P
+    C --- P
     D --- P
+    F --- P
 ```
 
 Emitters live on the host and produce one compact spawn-command buffer each frame. A single spawn kernel resolves the commands, so the number of GPU launches does not grow with the number of emitters. Each frame first retires particles, then spawns into the slots just returned to the device free-list. That avoids artificial spawn drops when an effect is at capacity but particles expire in the same update.
+
+Frame-control counters remain on the GPU. Host-visible stats are delivered through a small delayed telemetry ring, and `ParticleSystem::synchronize()` is reserved for explicit reporting, tests, and debugging.
 
 ## Shared Particle Pool
 
@@ -55,10 +60,13 @@ struct ParticlePool {
     float* age;
     float* lifetime;
     uint32_t* systemId;
+    uint32_t* activeIndices;
     uint32_t capacity;
     uint32_t aliveCount;
 };
 ```
+
+`ParticlePool::aliveCount` and `ParticlePool::activeIndices` are completed host telemetry snapshots. CUDA consumers that need the current active list should use `GpuParticlePool`, whose active-list pointer and active count reference GPU-resident frame state.
 
 Rough FP32 budget for position, velocity, color, age, lifetime, and system id is about 60 to 70 bytes per particle. At 10M particles, the core attributes are roughly 600 to 700 MB before optional attributes, scratch buffers, and future rendering resources.
 
@@ -70,11 +78,12 @@ Particle attributes remain in stable SoA slots. A dense active-index list drives
 
 - death pushes a slot index onto the free-list
 - spawn pops a slot index and appends it to the active-index list
-- CUB `DeviceSelect::Flagged` compacts only `uint32_t` active indices when deaths occur
-- once high occupancy makes recycled slots costly, CUB radix-sorts active indices before the next spawn
-- death-free frames skip CUB selection entirely
+- the simulation kernel writes alive flags for the active list it processed
+- a CUB block-scan compaction kernel writes surviving `uint32_t` active indices into the scratch list
+- a finalizer swaps active-list buffers only when deaths occurred
+- death-free frames return quickly from compaction without CPU involvement
 
-This prevents a lifecycle pass from gathering every particle attribute. The tradeoff is that a long-running free-list can reduce SoA locality, so this remains a benchmarked strategy rather than an unquestioned default.
+This prevents a lifecycle pass from gathering every particle attribute. The tradeoff is that a long-running free-list can reduce SoA locality. Locality repair and grouping are therefore benchmarked GPU-side sort/group strategies, not unconditional work in the hot path.
 
 ### Future Grouping
 
@@ -92,9 +101,9 @@ Start with a small fixed set of hand-written kernels:
 
 - spawn
 - simulate
-- compact/select
+- compact active indices
 - optional group/sort
-- stats
+- delayed telemetry snapshot
 
 The simulation kernel should fuse common modules:
 
@@ -145,7 +154,7 @@ Packed kernels should decode into FP32 registers, simulate in FP32, then encode 
 Once the frame sequence stabilizes, capture the update pipeline with CUDA Graphs:
 
 ```text
-spawn -> simulate -> compact/sort -> stats
+begin -> simulate -> compact/group -> reserve/spawn -> telemetry
 ```
 
 Replay graphs for normal frames to reduce CPU launch overhead. Rebuild only when pipeline structure changes.

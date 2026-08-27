@@ -35,6 +35,12 @@ struct SimulationSettings {
 };
 
 struct SimulationStats {
+    // Telemetry is delivered asynchronously. These identify the GPU frame that
+    // produced this sample and how many later submissions were already queued
+    // when the host observed it.
+    uint64_t frameIndex = 0;
+    uint32_t telemetryLatencyFrames = 0;
+    bool valid = false;
     uint32_t capacity = 0;
     uint32_t aliveCount = 0;
     uint32_t requestedSpawn = 0;
