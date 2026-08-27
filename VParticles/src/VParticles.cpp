@@ -1,414 +1,102 @@
-#include <SFML/Graphics.hpp>
-#include <SFML/OpenGL.hpp>
-#include <imgui-SFML.h>
-#include <optional>
+#include "VParticles/ParticleSystem.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <iomanip>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 
-#include "GpuMonitor.h"
-#include "GpuRenderer.h"
-#include "Camera.h"
+namespace {
 
-#include "ParticleSystem.h"
-#include "PerformanceStats.h"
-#include "SimulationGui.h"
-#include "SimulationSettings.h"
-#include "Benchmark.h"
-#include "UndoSystem.h"
-
-#ifdef _WIN32
-#include <Windows.h>
-static void ToggleFullscreen(sf::RenderWindow& window, bool& isFullscreen)
+uint32_t parseUintArg(const char* value, uint32_t fallback)
 {
-    HWND hwnd = window.getNativeHandle();
-    static WINDOWPLACEMENT wpPrev = { sizeof(wpPrev) };
-    DWORD dwStyle = GetWindowLong(hwnd, GWL_STYLE);
-    if (!isFullscreen)
-    {
-        MONITORINFO mi = { sizeof(mi) };
-        if (GetWindowPlacement(hwnd, &wpPrev) &&
-            GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &mi))
-        {
-            SetWindowLong(hwnd, GWL_STYLE, dwStyle & ~WS_OVERLAPPEDWINDOW);
-            SetWindowPos(hwnd, HWND_TOP,
-                         mi.rcMonitor.left, mi.rcMonitor.top,
-                         mi.rcMonitor.right - mi.rcMonitor.left,
-                         mi.rcMonitor.bottom - mi.rcMonitor.top,
-                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-            isFullscreen = true;
-        }
+    if (value == nullptr) {
+        return fallback;
     }
-    else
-    {
-        SetWindowLong(hwnd, GWL_STYLE, dwStyle | WS_OVERLAPPEDWINDOW);
-        SetWindowPlacement(hwnd, &wpPrev);
-        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        isFullscreen = false;
-    }
-}
-#else
-static void ToggleFullscreen(sf::RenderWindow&, bool&) {}
-#endif
 
-void RunConsoleMode(ParticleSystem& particleSystem)
+    char* end = nullptr;
+    const unsigned long parsed = std::strtoul(value, &end, 10);
+    return end != value ? static_cast<uint32_t>(parsed) : fallback;
+}
+
+float parseFloatArg(const char* value, float fallback)
 {
-    sf::Clock clock;
-    float timeAccumulator = 0.0f;
-    int frameCount = 0;
-
-    std::cout << "Starting console simulation mode..." << std::endl;
-
-    while (true)
-    {
-        sf::Time frameTime = clock.restart();
-        float dt = frameTime.asSeconds();
-
-        SimulationStats simStats;
-        SimulationSettings settings;
-        particleSystem.Update(dt, settings, simStats);
-
-        timeAccumulator += dt;
-        frameCount++;
-
-        if (timeAccumulator >= 1.0f)
-        {
-            float avgFps = static_cast<float>(frameCount) / timeAccumulator;
-            std::cout << "Average FPS: " << avgFps 
-                      << " | Particles: " << particleSystem.GetActiveCount() 
-                      << std::endl;
-            timeAccumulator = 0.0f;
-            frameCount = 0;
-        }
+    if (value == nullptr) {
+        return fallback;
     }
+
+    char* end = nullptr;
+    const float parsed = std::strtof(value, &end);
+    return end != value ? parsed : fallback;
 }
+
+} // namespace
 
 int main(int argc, char** argv)
 {
-    bool startInConsoleMode = false;
-    bool runBenchmark = false;
-    for (int i = 1; i < argc; ++i)
-    {
-        if (std::string(argv[i]) == "--console")
-        {
-            startInConsoleMode = true;
+    try {
+        uint32_t capacity = 1'000'000;
+        uint32_t frames = 240;
+        uint32_t emitterCount = 1;
+        float spawnRate = 250'000.0f;
+        float dt = 1.0f / 60.0f;
+
+        for (int index = 1; index < argc; ++index) {
+            const std::string arg = argv[index];
+            if (arg == "--capacity" && index + 1 < argc) {
+                capacity = parseUintArg(argv[++index], capacity);
+            } else if (arg == "--frames" && index + 1 < argc) {
+                frames = parseUintArg(argv[++index], frames);
+            } else if (arg == "--emitters" && index + 1 < argc) {
+                emitterCount = std::max(1u, parseUintArg(argv[++index], emitterCount));
+            } else if (arg == "--spawn-rate" && index + 1 < argc) {
+                spawnRate = parseFloatArg(argv[++index], spawnRate);
+            } else if (arg == "--dt" && index + 1 < argc) {
+                dt = parseFloatArg(argv[++index], dt);
+            }
         }
-        else if (std::string(argv[i]) == "--benchmark")
-        {
-            runBenchmark = true;
+
+        vparticles::ParticleSystem system(capacity);
+        for (uint32_t systemId = 0; systemId < emitterCount; ++systemId) {
+            vparticles::EmitterDesc emitter;
+            emitter.spawnRate = spawnRate / static_cast<float>(emitterCount);
+            emitter.lifetime = 4.0f;
+            emitter.lifetimeVariance = 0.2f;
+            emitter.velocity = {0.0f, 8.0f, 0.0f};
+            emitter.velocityVariance = {2.0f, 2.0f, 2.0f};
+            system.addEmitter(emitter);
         }
-    }
 
-    SimulationSettings settings;
-    PerformanceStats stats;
+        std::cout << "VParticles compute benchmark\n"
+                  << "capacity=" << capacity
+                  << " frames=" << frames
+                  << " emitters=" << emitterCount
+                  << " spawnRate=" << spawnRate
+                  << " dt=" << dt << "\n\n";
 
-    SimulationStats simStats;
+        for (uint32_t frame = 0; frame < frames; ++frame) {
+            system.update(dt);
+            const vparticles::SimulationStats& stats = system.stats();
 
-    ParticleSystem particleSystem;
+            if (frame % 30 == 0 || frame + 1 == frames) {
+                std::cout << "frame " << std::setw(4) << frame
+                          << " alive=" << std::setw(9) << stats.aliveCount
+                          << " spawned=" << std::setw(7) << stats.spawned
+                          << " dropped=" << std::setw(7) << stats.dropped
+                          << " dead=" << std::setw(7) << stats.deadCount
+                          << " spawnMs=" << std::fixed << std::setprecision(3) << stats.spawnMs
+                          << " simMs=" << stats.simulateMs
+                          << " compactMs=" << stats.compactMs
+                          << " totalMs=" << stats.totalMs
+                          << '\n';
+            }
+        }
 
-    GpuRenderer gpuRenderer;           // GPU-path renderer (CUDA-GL interop)
-    SimulationGui simulationGui;
-    GpuMonitor gpuMonitor;
-
-    particleSystem.InitializePool(1000000);
-    particleSystem.Reset(settings);
-
-    if (startInConsoleMode)
-    {
-        RunConsoleMode(particleSystem);
         return 0;
-    }
-    // Request a depth buffer for 3D rendering
-    sf::ContextSettings glSettings;
-    glSettings.depthBits = 24;
-    glSettings.majorVersion = 3;
-    glSettings.minorVersion = 3;
-
-    sf::RenderWindow window(
-        sf::VideoMode({ 1600, 900 }),
-        "VParticles",
-        sf::Style::Default,
-        sf::State::Windowed,
-        glSettings
-    );
-    window.setVerticalSyncEnabled(false);   // Uncap FPS
-    window.setFramerateLimit(0);            // No frame limit
-
-    if (!ImGui::SFML::Init(window))
-    {
+    } catch (const std::exception& error) {
+        std::cerr << "VParticles failed: " << error.what() << '\n';
         return 1;
     }
-
-    // Init GPU renderer after window (OpenGL context) is created
-    gpuRenderer.Init(window, 1000000);
-
-    if (runBenchmark)
-    {
-        BenchmarkRunner::Run(window, particleSystem, gpuRenderer, settings);
-        return 0;
-    }
-
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
-
-    constexpr float uiFontSize = 22.0f;
-
-    ImFontConfig fontConfig;
-    fontConfig.SizePixels = uiFontSize;
-
-    ImFont* uiFont = io.Fonts->AddFontFromFileTTF(
-        "C:\\Windows\\Fonts\\segoeui.ttf",
-        uiFontSize,
-        &fontConfig,
-        io.Fonts->GetGlyphRangesDefault()
-    );
-
-    if (uiFont == nullptr)
-    {
-        uiFont = io.Fonts->AddFontDefaultVector(&fontConfig);
-    }
-
-    ImFontBaked* bakedFont = uiFont->GetFontBaked(uiFontSize);
-    const ImWchar* ranges = io.Fonts->GetGlyphRangesDefault();
-
-    for (; ranges[0] != 0; ranges += 2)
-    {
-        for (unsigned int codepoint = ranges[0]; codepoint <= ranges[1]; ++codepoint)
-        {
-            bakedFont->FindGlyph(static_cast<ImWchar>(codepoint));
-        }
-    }
-
-    uiFont->Flags |= ImFontFlags_LockBakedSizes;
-
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.FontScaleMain = 1.0f;
-    style.ScaleAllSizes(1.25f);
-    
-    // Sleek Custom Rounding
-    style.WindowRounding = 6.0f;
-    style.FrameRounding = 3.0f;
-    style.GrabRounding = 3.0f;
-    style.PopupRounding = 3.0f;
-    style.ScrollbarRounding = 3.0f;
-    style.TabRounding = 3.0f;
-    
-    // Electric Teal/Cyan Theme
-    ImVec4* colors = style.Colors;
-    colors[ImGuiCol_Text]                   = ImVec4(0.90f, 0.90f, 0.92f, 1.00f);
-    colors[ImGuiCol_TextDisabled]           = ImVec4(0.40f, 0.40f, 0.45f, 1.00f);
-    colors[ImGuiCol_WindowBg]               = ImVec4(0.09f, 0.09f, 0.10f, 1.00f);
-    colors[ImGuiCol_ChildBg]                = ImVec4(0.09f, 0.09f, 0.10f, 1.00f);
-    colors[ImGuiCol_PopupBg]                = ImVec4(0.06f, 0.06f, 0.07f, 0.96f);
-    colors[ImGuiCol_Border]                 = ImVec4(0.16f, 0.16f, 0.18f, 1.00f);
-    colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg]                = ImVec4(0.13f, 0.13f, 0.15f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.18f, 0.18f, 0.20f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]          = ImVec4(0.22f, 0.22f, 0.25f, 1.00f);
-    colors[ImGuiCol_TitleBg]                = ImVec4(0.07f, 0.07f, 0.08f, 1.00f);
-    colors[ImGuiCol_TitleBgActive]          = ImVec4(0.07f, 0.07f, 0.08f, 1.00f);
-    colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.07f, 0.07f, 0.08f, 1.00f);
-    colors[ImGuiCol_MenuBarBg]              = ImVec4(0.07f, 0.07f, 0.08f, 1.00f);
-    colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.09f, 0.09f, 0.10f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.20f, 0.20f, 0.22f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.0f, 0.55f, 0.75f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.0f, 0.75f, 0.95f, 1.00f);
-    colors[ImGuiCol_CheckMark]              = ImVec4(0.0f, 0.85f, 1.00f, 1.00f);
-    colors[ImGuiCol_SliderGrab]             = ImVec4(0.0f, 0.65f, 0.85f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.0f, 0.85f, 1.00f, 1.00f);
-    colors[ImGuiCol_Button]                 = ImVec4(0.15f, 0.15f, 0.17f, 1.00f);
-    colors[ImGuiCol_ButtonHovered]          = ImVec4(0.0f, 0.55f, 0.75f, 1.00f);
-    colors[ImGuiCol_ButtonActive]           = ImVec4(0.0f, 0.75f, 0.95f, 1.00f);
-    colors[ImGuiCol_Header]                 = ImVec4(0.14f, 0.14f, 0.16f, 1.00f);
-    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.0f, 0.55f, 0.75f, 1.00f);
-    colors[ImGuiCol_HeaderActive]           = ImVec4(0.0f, 0.75f, 0.95f, 1.00f);
-    colors[ImGuiCol_Separator]              = ImVec4(0.16f, 0.16f, 0.18f, 1.00f);
-    colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.0f, 0.55f, 0.75f, 1.00f);
-    colors[ImGuiCol_SeparatorActive]        = ImVec4(0.0f, 0.75f, 0.95f, 1.00f);
-    colors[ImGuiCol_Tab]                    = ImVec4(0.13f, 0.13f, 0.15f, 1.00f);
-    colors[ImGuiCol_TabHovered]             = ImVec4(0.0f, 0.65f, 0.85f, 1.00f);
-    colors[ImGuiCol_TabActive]              = ImVec4(0.0f, 0.75f, 0.95f, 1.00f);
-    colors[ImGuiCol_TabUnfocused]           = ImVec4(0.13f, 0.13f, 0.15f, 1.00f);
-    colors[ImGuiCol_TabUnfocusedActive]     = ImVec4(0.18f, 0.18f, 0.20f, 1.00f);
-
-    // Camera state
-    Camera camera;
-    UndoSystem undoSystem;
-    bool isDragging = false;
-    bool isFullscreen = false;
-    sf::Vector2i lastMousePos;
-
-    sf::Clock clock;
-    float timeAccumulator = 0.0f;
-    int frameCount = 0;
-    float gpuPollAccumulator = 0.0f;
-
-    // Initial GPU poll so stats aren't zero on first frame
-    gpuMonitor.Poll(stats);
-
-    while (window.isOpen())
-    {
-        sf::Time frameTime = clock.restart();
-        float dt = frameTime.asSeconds();
-
-        stats.frameTimeMs = dt * 1000.0f;
-        stats.fps = dt > 0.0f ? 1.0f / dt : 0.0f;
-
-        timeAccumulator += dt;
-        frameCount++;
-        if (timeAccumulator >= 0.5f) {
-            stats.averageFps = static_cast<float>(frameCount) / timeAccumulator;
-            timeAccumulator = 0.0f;
-            frameCount = 0;
-        }
-
-        // Poll GPU metrics once per second (NVML is not free)
-        gpuPollAccumulator += dt;
-        if (gpuPollAccumulator >= 1.0f) {
-            gpuMonitor.Poll(stats);
-            gpuPollAccumulator = 0.0f;
-        }
-
-        while (const std::optional event = window.pollEvent())
-        {
-            ImGui::SFML::ProcessEvent(window, *event);
-
-            if (event->is<sf::Event::Closed>())
-            {
-                window.close();
-            }
-            else if (const auto* resized = event->getIf<sf::Event::Resized>())
-            {
-                sf::FloatRect visibleArea({0.f, 0.f}, {static_cast<float>(resized->size.x), static_cast<float>(resized->size.y)});
-                window.setView(sf::View(visibleArea));
-            }
-            else if (const auto* pressed = event->getIf<sf::Event::MouseButtonPressed>())
-            {
-                // Only start dragging if middle mouse button and not over ImGui
-                if (pressed->button == sf::Mouse::Button::Middle && !ImGui::GetIO().WantCaptureMouse)
-                {
-                    isDragging = true;
-                    lastMousePos = pressed->position;
-                }
-            }
-            else if (event->is<sf::Event::MouseButtonReleased>())
-            {
-                isDragging = false;
-            }
-            else if (const auto* moved = event->getIf<sf::Event::MouseMoved>())
-            {
-                if (isDragging)
-                {
-                    sf::Vector2i delta = moved->position - lastMousePos;
-                    lastMousePos = moved->position;
-
-                    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift))
-                    {
-                        camera.Pan(static_cast<float>(delta.x), static_cast<float>(delta.y));
-                    }
-                    else
-                    {
-                        camera.yaw   += static_cast<float>(delta.x) * 0.005f;
-                        camera.pitch += static_cast<float>(delta.y) * 0.005f;
-                        camera.ClampPitch();
-                    }
-                }
-            }
-            else if (const auto* scrolled = event->getIf<sf::Event::MouseWheelScrolled>())
-            {
-                if (!ImGui::GetIO().WantCaptureMouse)
-                {
-                    camera.distance -= scrolled->delta * 50.0f;
-                    if (camera.distance < 10.0f) camera.distance = 10.0f;
-                    if (camera.distance > 20000.0f) camera.distance = 20000.0f;
-                }
-            }
-            else if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>())
-            {
-                if (keyPressed->code == sf::Keyboard::Key::Z && keyPressed->control)
-                {
-                    if (keyPressed->shift)
-                    {
-                        undoSystem.Redo(settings);
-                    }
-                    else
-                    {
-                        undoSystem.Undo(settings);
-                    }
-                }
-                else if (keyPressed->code == sf::Keyboard::Key::Y && keyPressed->control)
-                {
-                    undoSystem.Redo(settings);
-                }
-                else if (keyPressed->code == sf::Keyboard::Key::F11)
-                {
-                    ToggleFullscreen(window, isFullscreen);
-                }
-            }
-        }
-
-        ImGui::SFML::Update(window, frameTime);
-
-        SimulationGuiResult guiResult = simulationGui.Draw(settings, undoSystem, stats, simStats, particleSystem, camera);
-
-        if (guiResult.exitRequested)
-        {
-            window.close();
-            return 0;
-        }
-
-        if (guiResult.fullscreenToggleRequested)
-        {
-            ToggleFullscreen(window, isFullscreen);
-        }
-
-        if (guiResult.switchToConsoleRequested)
-        {
-            window.close();
-            RunConsoleMode(particleSystem);
-            return 0;
-        }
-
-        if (guiResult.resetRequested)
-        {
-            particleSystem.Reset(settings);
-        }
-
-        sf::Clock updateClock;
-        if (!settings.paused)
-        {
-            particleSystem.Update(dt * settings.timeScale, settings, simStats);
-        }
-        simStats.updateTimeMs = updateClock.getElapsedTime().asSeconds() * 1000.0f;
-
-        window.clear();
-
-        sf::Clock renderClock;
-        // GPU mode: CUDA kernel fills VBO, OpenGL instanced draw — zero CPU readback
-        if (gpuRenderer.IsInitialized())
-        {
-            int vpX = static_cast<int>(simulationGui.GetLeftPanelWidth());
-            int vpY = static_cast<int>(simulationGui.GetBottomPanelHeight());
-            int vpW = static_cast<int>(window.getSize().x - simulationGui.GetLeftPanelWidth() - simulationGui.GetRightPanelWidth());
-            int vpH = static_cast<int>(window.getSize().y - 24.0f - simulationGui.GetBottomPanelHeight());
-            vpW = std::max(1, vpW);
-            vpH = std::max(1, vpH);
-
-            glViewport(vpX, vpY, vpW, vpH);
-
-            float aspect = static_cast<float>(vpW) / static_cast<float>(vpH);
-            Mat4 viewMat = camera.GetViewMatrix();
-            Mat4 projMat = camera.GetProjectionMatrix(aspect);
-            gpuRenderer.Draw(window, particleSystem, viewMat.Ptr(), projMat.Ptr(), settings);
-        }
-        simStats.renderTimeMs = renderClock.getElapsedTime().asSeconds() * 1000.0f;
-        ImGui::SFML::Render(window);
-
-        window.display();
-    }
-
-    ImGui::SFML::Shutdown(window);
-
-    return 0;
 }

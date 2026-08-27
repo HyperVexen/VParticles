@@ -2,21 +2,29 @@ cmake_minimum_required(VERSION 3.18)
 project(VParticles LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 17)
-set(CMAKE_CUDA_ARCHITECTURES "native")
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES "native")
+endif()
 
-set(VCPKG_ROOT "C:/Users/death/Desktop/Important folder/LIBRARIES/VCPKG/installed/x64-windows")
+find_package(CUDAToolkit REQUIRED)
 
-include_directories(
-    "VParticles/include"
-    "${VCPKG_ROOT}/include"
-    "D:/CUDA/include"   # nvml.h, cuda_gl_interop.h for non-.cu files
+file(GLOB_RECURSE VPARTICLES_SOURCES CONFIGURE_DEPENDS
+    "VParticles/src/*.cpp"
+    "VParticles/src/*.cu"
 )
 
-# Gather source files
-file(GLOB SOURCES "VParticles/src/*.cpp" "VParticles/src/*.cu")
+add_executable(VParticles ${VPARTICLES_SOURCES})
 
-add_executable(VParticles ${SOURCES})
+target_include_directories(VParticles PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/VParticles/include"
+)
+
+target_link_libraries(VParticles PRIVATE
+    CUDA::cudart
+)
 
 if(MSVC)
     target_compile_options(VParticles PRIVATE
@@ -25,32 +33,7 @@ if(MSVC)
     )
 endif()
 
-# Link correct lib dirs and names per configuration
-target_link_directories(VParticles PRIVATE
-    $<$<CONFIG:Debug>:${VCPKG_ROOT}/debug/lib>
-    $<$<NOT:$<CONFIG:Debug>>:${VCPKG_ROOT}/lib>
-    D:/CUDA/lib/x64
-)
-
-target_link_libraries(VParticles PRIVATE
-    # SFML
-    $<$<CONFIG:Debug>:sfml-graphics-d>
-    $<$<NOT:$<CONFIG:Debug>>:sfml-graphics>
-    $<$<CONFIG:Debug>:sfml-window-d>
-    $<$<NOT:$<CONFIG:Debug>>:sfml-window>
-    $<$<CONFIG:Debug>:sfml-system-d>
-    $<$<NOT:$<CONFIG:Debug>>:sfml-system>
-    # ImGui-SFML / imgui
-    ImGui-SFML
-    $<$<CONFIG:Debug>:imguid>
-    $<$<NOT:$<CONFIG:Debug>>:imgui>
-    # GLEW (OpenGL extension loading)
-    $<$<CONFIG:Debug>:glew32d>
-    $<$<NOT:$<CONFIG:Debug>>:glew32>
-    OpenGL32
-    # CUDA
-    cudadevrt
-    cudart
-    curand
-    nvml
+set_target_properties(VParticles PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
