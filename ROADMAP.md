@@ -208,12 +208,12 @@ Next refinement:
 - Validated via `VParticlesD3D12InteropTest.exe` on RTX 3050 Laptop GPU at 3,564 FPS (0.28 ms/frame) with 100% data and hardware fence verification.
 - Integration guide and architecture report in [docs/PHASE_10B_MODERN_ENGINE_INTEROP.md](docs/PHASE_10B_MODERN_ENGINE_INTEROP.md).
 
-## Phase 11: Engine Plugins & Async Compute Overlap
+## Phase 11: Granular Simulation (Saga 2) — In Progress
 
-- Unreal Engine 5 Niagara / Custom RHI extension plugin.
-- Direct DX12 Async Compute Queue overlap (simulating VFX on compute queue asynchronously while rasterizer executes G-buffer / lighting passes).
-- Clustered forward and deferred light injection into particle volumes.
-- Depth buffer scene collisions (depth buffer texture sharing with compute shader).
+- Build a Houdini Vellum/POP Grains-style, particle-only granular mode with no grid-based physical solver.
+- Phase 11A has started with the parity, point-cache, and solver-spike measurement gate documented in [Granular Foundations](docs/PHASE_11A_GRANULAR_FOUNDATIONS.md).
+- Do not begin production granular runtime work until Gate G0 records neighbour and contact-solver measurements.
+- Preserve effects-mode benchmark behaviour; the existing `--matrix` remains the mandatory regression gate.
 
 ## First Build Target
 

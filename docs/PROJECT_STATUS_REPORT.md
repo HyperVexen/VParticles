@@ -1,12 +1,16 @@
 # VParticles Compute Status Report
 
-Updated: 2026-09-25
+Updated: 2026-10-02
 
 ## Scope
 
 VParticles is currently a CUDA-only, compute-only particle simulation engine. Rendering, Blender integration, editor tooling, and external DCC bridges are intentionally out of scope until the simulation path is proven at scale.
 
 The current target is game VFX simulation with 10M+ live particles on NVIDIA GPUs.
+
+## Active Work
+
+- **Saga 2 / Phase 11A: Granular Foundations** is in progress. The first deliverable establishes pre-code solver-spike criteria, a Houdini control inventory, and a point-cache contract; it makes no unmeasured performance or parity claim. See [Phase 11A Granular Foundations](PHASE_11A_GRANULAR_FOUNDATIONS.md).
 
 ## Completed Work
 

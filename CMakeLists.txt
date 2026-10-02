@@ -54,6 +54,21 @@ set_target_properties(VParticlesCore PROPERTIES
 )
 
 # ----------------------------------------------------------------------
+# Phase 11A throwaway calibration spike (never linked to production core)
+# ----------------------------------------------------------------------
+add_executable(Phase11ADemReference EXCLUDE_FROM_ALL
+    "spikes/Phase11A_DemReference.cu"
+)
+
+target_link_libraries(Phase11ADemReference PRIVATE
+    CUDA::cudart
+)
+
+set_target_properties(Phase11ADemReference PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+)
+
+# ----------------------------------------------------------------------
 # 2. Headless Benchmark Executable
 # ----------------------------------------------------------------------
 add_executable(VParticles
