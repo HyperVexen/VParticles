@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 390" role="img" aria-labelledby="title description">
+  <title id="title">CUDA Graph versus eager submission total update latency</title>
+  <desc id="description">Grouped bars compare measured p50, p95, and p99 total update latency for one million packed particles. CUDA Graph values are 0.252, 0.603, and 0.636 milliseconds. Eager values are 0.344, 0.622, and 0.894 milliseconds.</desc>
+  <style>
+    .bg{fill:#101827}.grid{stroke:#40516a;stroke-width:1}.axis{stroke:#aebbd0;stroke-width:1.4}.t{fill:#e8eef8;font:14px Arial,sans-serif}.s{fill:#aebbd0;font:12px Arial,sans-serif}.v{fill:#e8eef8;font:12px Arial,sans-serif;font-weight:bold}.g{fill:#35b9a0}.e{fill:#7e94b8}
+  </style>
+  <rect class="bg" width="760" height="390" rx="12"/>
+  <text class="t" x="48" y="37" font-weight="bold">Total update latency — measured 1M packed ramp</text>
+  <text class="s" x="48" y="59">RTX 3050 Laptop GPU · 120 frames · lower is better · milliseconds</text>
+  <line class="grid" x1="90" y1="100" x2="720" y2="100"/><line class="grid" x1="90" y1="165" x2="720" y2="165"/><line class="grid" x1="90" y1="230" x2="720" y2="230"/><line class="grid" x1="90" y1="295" x2="720" y2="295"/>
+  <line class="axis" x1="90" y1="295" x2="720" y2="295"/><line class="axis" x1="90" y1="92" x2="90" y2="295"/>
+  <text class="s" x="55" y="299">0.0</text><text class="s" x="55" y="234">0.3</text><text class="s" x="55" y="169">0.6</text><text class="s" x="55" y="104">0.9</text>
+  <rect class="g" x="170" y="240.4" width="56" height="54.6" rx="3"/><rect class="e" x="236" y="220.5" width="56" height="74.5" rx="3"/>
+  <rect class="g" x="372" y="164.4" width="56" height="130.6" rx="3"/><rect class="e" x="438" y="160.2" width="56" height="134.8" rx="3"/>
+  <rect class="g" x="574" y="157.2" width="56" height="137.8" rx="3"/><rect class="e" x="640" y="101.3" width="56" height="193.7" rx="3"/>
+  <text class="v" x="181" y="233">0.252</text><text class="v" x="247" y="213">0.344</text>
+  <text class="v" x="383" y="157">0.603</text><text class="v" x="449" y="153">0.622</text>
+  <text class="v" x="585" y="150">0.636</text><text class="v" x="651" y="94">0.894</text>
+  <text class="t" x="211" y="326" text-anchor="middle">p50</text><text class="t" x="413" y="326" text-anchor="middle">p95</text><text class="t" x="615" y="326" text-anchor="middle">p99</text>
+  <rect class="g" x="90" y="351" width="12" height="12" rx="2"/><text class="s" x="109" y="362">CUDA Graph</text><rect class="e" x="218" y="351" width="12" height="12" rx="2"/><text class="s" x="237" y="362">Eager</text>
+</svg>

@@ -16,4 +16,6 @@ build/
 *.dll
 *.log
 imgui.ini
-benchmark_results.csv
+*.csv
+*.nsys-rep
+*.sqlite

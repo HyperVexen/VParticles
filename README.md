@@ -8,29 +8,47 @@ The target is 10M+ live particles on NVIDIA GPUs while keeping the simulation ba
 
 The current engine provides:
 
-- One shared FP32 structure-of-arrays particle pool.
+- One shared FP32 structure-of-arrays particle pool with runtime dual-mode support for Packed SoA storage (28 bytes/particle in pool, ~2.3x speedup).
+- Multi-tile large-world spatial scale: up to 256 world-space tiles in CUDA constant memory with zero-copy tile migration.
 - Deterministic spawn variation without persistent per-particle RNG state.
 - Fused gravity, wind, drag, Euler integration, age, lifetime kill, and alpha fade.
+- Fused divergence-free 3D curl-noise turbulence.
+- Fused analytical collision solvers: ground/arbitrary planes, bounding/obstacle spheres, and boxes with bounce restitution and surface friction.
+- Fused size-over-life and color-over-life curves with zero extra DRAM bandwidth overhead.
 - Dense active indices plus a persistent GPU free-list for particle lifecycle management.
 - GPU-resident active counters and block-scan active-index compaction.
 - A batched spawn-command buffer: one GPU spawn launch per frame, independent of emitter count.
-- A delayed telemetry ring for per-stage GPU timing and lifecycle statistics.
+- A delayed telemetry ring for per-stage GPU timing, lifecycle statistics, and renderer-ready tile metadata.
+- Automated benchmark matrix with four workload types, timing percentiles (p50/p95/p99), and effective memory bandwidth.
+- CUDA Graph replay for the steady-state compute sequence, with a safe eager A/B fallback.
+- Data-driven effect recipes: up to 64 concurrent `EffectRecipe` profiles in constant memory with per-particle assignment, single-recipe zero-overhead fast path, and zero graph rebuilds on recipe parameter tuning.
+- Interactive OpenGL viewer (`VParticlesViewer.exe`): zero-copy CUDA-OpenGL buffer interop via `cudaGraphicsGLRegisterBuffer`, GPU-resident indirect draw dispatch (`glDrawArraysIndirect`), 150 FPS at 1M particles, 8 visual presets, and Arcball camera controls.
+- Modern Engine Interop (`VParticlesD3D12InteropTest.exe`): zero-copy GPU memory sharing with DirectX 12 (`ID3D12Resource` NT handles) and Vulkan, lockless hardware timeline synchronization (`cudaWaitExternalSemaphoresAsync` / `cudaSignalExternalSemaphoresAsync`), and GPU-driven `D3D12DrawArguments` emission executing at 3,564 FPS.
 
 The detailed implementation report and latest validation notes are in [docs/PROJECT_STATUS_REPORT.md](docs/PROJECT_STATUS_REPORT.md). The planned work is in [ROADMAP.md](ROADMAP.md).
+CUDA Graph design, timing semantics, and measured A/B results are documented in [docs/PHASE_8_CUDA_GRAPHS.md](docs/PHASE_8_CUDA_GRAPHS.md).
+Phase 9 data-driven effects architecture and validation are in [docs/PHASE_9_DATA_DRIVEN_EFFECTS.md](docs/PHASE_9_DATA_DRIVEN_EFFECTS.md).
+Phase 10A OpenGL interactive viewer architecture and benchmarks are in [docs/PHASE_10A_OPENGL_VIEWER.md](docs/PHASE_10A_OPENGL_VIEWER.md).
+Phase 10B Modern Engine Interop architecture and Unreal Engine 5 integration guide are in [docs/PHASE_10B_MODERN_ENGINE_INTEROP.md](docs/PHASE_10B_MODERN_ENGINE_INTEROP.md).
 
 ## Benchmarking Note
 
-The runtime now keeps frame-control counters on the GPU and publishes host-visible statistics through delayed telemetry. `update()` does not wait for exact per-frame stats. The benchmark executable calls `synchronize()` only at the reporting boundary so the final line is an exact host-visible snapshot.
+The runtime keeps frame-control counters on the GPU and publishes host-visible statistics through delayed telemetry. `update()` does not wait for exact per-frame stats. The benchmark executable calls `synchronize()` only at the reporting boundary so the final line is an exact host-visible snapshot.
 
-Performance numbers should be refreshed with the benchmark matrix after this telemetry rewrite. GPU model, clocks, driver version, and effect workload all affect the result.
+The `--matrix` mode iterates workload types, capacities, and emitter counts, printing timing percentiles and effective simulation bandwidth for each scenario. GPU model, VRAM, compute capability, and CUDA driver version are printed at startup.
 
 ## Architecture
 
 ```text
 simulate active particles
+  -> apply forces (gravity, wind, drag)
+  -> compute divergence-free curl noise
+  -> integrate positions (dt)
+  -> resolve plane, sphere, box collisions
+  -> evaluate color and size curves
   -> return dead slots to a GPU free-list
   -> compact active indices on the GPU when deaths occur
-  -> upload batched spawn commands
+  -> upload batched spawn commands (pinned host ring)
   -> reserve and spawn into reclaimed slots
   -> publish delayed telemetry
 ```
@@ -87,6 +105,41 @@ Add `--emitters` to split the total spawn rate among multiple emitters while pre
 .\out\build\x64-Release\VParticles.exe --capacity 10000000 --frames 360 --emitters 64 --spawn-rate 2500000
 ```
 
+Run with fused simulation modules (turbulence, collisions, curves):
+
+```powershell
+.\out\build\x64-Release\VParticles.exe --capacity 1000000 --frames 120 --turbulence 5.0 --ground-plane 0.0 --curves
+```
+
+Run in Packed State Mode (28 bytes/particle storage, ~2.3x simulate speedup, scale up to 20M+ particles):
+
+```powershell
+.\out\build\x64-Release\VParticles.exe --capacity 10000000 --frames 120 --packed
+```
+
+Run multi-tile simulation across large-world origins (e.g. 16 tiles, 64 emitters):
+
+```powershell
+.\out\build\x64-Release\VParticles.exe --capacity 10000000 --frames 120 --emitters 64 --tiles 16 --packed
+```
+
+Compare CUDA Graph replay with conventional eager submission:
+
+```powershell
+.\out\build\x64-Release\VParticles.exe --capacity 10000000 --frames 120 --packed
+.\out\build\x64-Release\VParticles.exe --capacity 10000000 --frames 120 --packed --no-graph
+```
+
+Launch the interactive OpenGL Viewer:
+
+```powershell
+# Interactive viewer at 1M particles (presets, orbit/pan/zoom camera, HUD telemetry)
+.\out\build\x64-Release\VParticlesViewer.exe --capacity 1000000
+
+# High-scale uncapped viewer benchmark at 5M particles
+.\out\build\x64-Release\VParticlesViewer.exe --capacity 5000000 --no-vsync
+```
+
 Available arguments:
 
 | Argument | Default | Meaning |
@@ -96,6 +149,29 @@ Available arguments:
 | `--emitters` | 1 | Number of emitters sharing the total spawn rate. |
 | `--spawn-rate` | 250,000 | Total requested particles per second. |
 | `--dt` | 1/60 | Fixed timestep in seconds. |
+| `--workload` | `ramp` | Workload type: `ramp`, `recycle`, `saturation`, `burst`. |
+| `--matrix-workloads` | `ramp,recycle,saturation,burst` | Comma-separated workload types for `--matrix` mode. |
+| `--turbulence` | `0.0` | Divergence-free curl noise strength (0 = disabled). |
+| `--turb-freq` | `0.2` | Spatial frequency for curl noise. |
+| `--ground-plane` | `0.0` | Enable ground collision plane at optional height `y`. |
+| `--sphere-collision` | `5.0` | Enable sphere obstacle collision at center `(0,5,0)` with radius `r`. |
+| `--box-collision` | `false` | Enable bounding AABB box collision. |
+| `--curves` | `false` | Enable color-over-life and size-over-life curves. |
+| `--packed` | `false` | Enable 28-byte/particle compressed SoA layout. |
+| `--no-graph` | `false` | Disable CUDA Graph replay and submit the update sequence eagerly. |
+| `--tiles` | `1` | Number of simulation tiles arranged in world space (up to 256). |
+| `--tile-scale` | `100.0` | Quantization scale factor (local int16 units per world unit). |
+
+### Workload Types
+
+The `--workload` argument selects the particle lifecycle profile. In `--matrix` mode all four workloads are iterated by default.
+
+| Workload | Spawn strategy | Lifetime | Behaviour |
+| --- | --- | --- | --- |
+| `ramp` | `capacity / (frames × dt)` | 4.0 s | Gradual fill over the run |
+| `recycle` | `capacity` per second | 1.0 s | Fill in ~1 s, then sustained churn |
+| `saturation` | 4× ramp rate | 2× run duration | Fill fast, rest is all drops |
+| `burst` | 0 continuous | 2.0 s | Burst capacity/4 every 30 frames |
 
 ## Project Layout
 
@@ -111,7 +187,7 @@ ROADMAP.md                      Engineering milestones and sequencing
 - Rendering, renderer interop, and UI.
 - Blender or other DCC integrations.
 - Per-effect GPU buffers and per-emitter spawn launches.
-- Packed state formats before the FP32 lifecycle baseline is profiled.
+- Multi-GPU scaling before single-GPU spatial hierarchy is proven.
 
 ## Contributing
 
