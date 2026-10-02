@@ -34,6 +34,7 @@ add_library(VParticlesCore STATIC
 
 target_include_directories(VParticlesCore PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/VParticles/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/VParticles/src"
 )
 
 target_link_libraries(VParticlesCore PUBLIC
