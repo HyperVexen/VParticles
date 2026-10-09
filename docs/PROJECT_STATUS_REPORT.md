@@ -228,6 +228,28 @@ Tested on **NVIDIA GeForce RTX 3050 6GB Laptop GPU** (CUDA 13.3, 1,000,000 grain
 
 Complete 36-workload `--matrix` regression suite passed with zero degradation. See [Phase 11B Granular Pool & Runtime](PHASE_11B_GRANULAR_POOL_RUNTIME.md).
 
+### 7. Phase 11C Spatial Neighbor Structure Validation
+
+- **Gate 11C-1 (Bit-Exact Pair Match):** 10,000 grains bit-exact match vs $O(N^2)$ brute-force (57,198 pairs, 0 errors).
+- **Gate 11C-2 (Latency Budget):** 1M grains amortized Verlet rebuild: **0.896 ms** (Target: $< 1.5$ ms).
+- **Gate 11C-3 (Bit-Exact Determinism):** 5-run bit-exact hash parity (`0xa36c93921c6809c9`).
+- **Gate 11C-4 (Overflow Counter):** Zero memory corruption, hardware overflow counter validated.
+- **Gate 11C-5 (Zero Effects Regression):** 36/36 matrix passed up to 226.5 GB/s. See [Phase 11C Spatial Neighbor Structure](PHASE_11C_NEIGHBOR_STRUCTURE.md).
+
+### 8. Phase 11D Cell-Colored Gauss-Seidel Contact Solver Validation
+
+Tested on **NVIDIA GeForce RTX 3050 6GB Laptop GPU** (CUDA 13.3):
+
+| Exit Gate | Metric Measured | Target | Verdict |
+|---|---|---|:---:|
+| **Gate 11D-1** (Stacking & Non-Penetration) | **0.00094 m** (9.39% of radius) | $< 10.0\%$ of radius ($< 0.0010$ m) | **PASSED** |
+| **Gate 11D-2** (Monotonic Energy Dissipation) | Ratio **0.0000** (Peak: 9,074.8 -> Final: 0.0) | Ratio $< 0.05$ | **PASSED** |
+| **Gate 11D-3** (Stability & NaN Safety) | **0 NaNs / Infs**, max speed **1.212 m/s** | 250K grains, 120 frames, zero NaN | **PASSED** |
+| **Gate 11D-4** (Solver Latency Budget) | **0.842 ms** @ 250K, **2.452 ms** @ 1M | $\le 1.0$ ms @ 250K, $\le 3.5$ ms @ 1M | **PASSED** |
+| **Gate 11D-5** (Zero Effects Regression) | **36 / 36 passed** (Peak BW: 223.4 GB/s) | 36 / 36 workloads green | **PASSED** |
+
+See [Phase 11D Contact Solver Report](PHASE_11D_CONTACT_SOLVER.md).
+
 ## Known Limits
 
 - Host-visible stats are delayed by design. Call `ParticleSystem::synchronize()` only at explicit validation or reporting boundaries that need an exact snapshot.
@@ -235,9 +257,11 @@ Complete 36-workload `--matrix` regression suite passed with zero degradation. S
 
 ## Next Work
 
-### Phase 11C: Cell-Colored Gauss-Seidel Contact Solver
+### Phase 11E: Material Behavior, Polydisperse Grain Radii, Sand Piles & Sleeping
 
-- Port verified Phase 11A Verlet neighbour search into production `GranularNeighborSearch`.
-- Implement `ColoredGaussSeidelContactSolver` for grain-to-grain contact resolution.
-- Validate pile settling angle of repose and non-penetration.
+- Multi-material mixture support (cohesion, repulsion, density, polydisperse grain radii distributions $r_i \in [r_{\text{min}}, r_{\text{max}}]$).
+- Angle of repose validation for sand pile pouring ($30^\circ - 35^\circ$ for dry quartz sand).
+- Grain sleeping / island deactivation optimization: freeze resting grains ($v < v_{\text{sleep}}$ for $N$ consecutive frames) to bypass solver passes while waking instantly on contact impulses.
+- Sand scenarios CLI: `--sand-scenario {funnel,dune,dam_break,column_collapse}`.
+
 

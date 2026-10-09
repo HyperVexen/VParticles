@@ -28,6 +28,7 @@ struct NeighborData {
     uint32_t* cellStart = nullptr;        // numCells * 4 bytes
     uint32_t* cellEnd = nullptr;          // numCells * 4 bytes
     uint32_t* colorOffsets = nullptr;     // 9 elements (offsets for 8 colors: 0..7, plus total)
+    uint32_t hostColorOffsets[9] = {};    // 9 elements host-cached for zero-sync Gauss-Seidel dispatch
     uint32_t* colorIndices = nullptr;     // capacity * 4 bytes
     uint32_t* d_overflowCounter = nullptr;// 4 bytes device counter
     uint32_t* d_rebuildNeeded = nullptr;  // 4 bytes device flag

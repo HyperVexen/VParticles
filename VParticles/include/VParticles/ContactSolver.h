@@ -22,5 +22,6 @@ public:
 
 // Factory functions
 std::unique_ptr<IContactSolver> createJacobiContactSolver();
+std::unique_ptr<IContactSolver> createGaussSeidelContactSolver();
 
 } // namespace vparticles

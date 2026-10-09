@@ -57,7 +57,7 @@ struct GranularSystem::Impl {
         VP_CUDA_CHECK(cudaMemsetAsync(pool.vel, 0, sizeof(float4) * cap, stream));
         VP_CUDA_CHECK(cudaMemsetAsync(pool.flags, 0, sizeof(uint16_t) * cap, stream));
 
-        solver = createJacobiContactSolver();
+        solver = createGaussSeidelContactSolver();
         neighborSearch = std::make_unique<GranularNeighborSearch>(cap);
     }
 
@@ -115,7 +115,8 @@ struct GranularSystem::Impl {
 
             // 3. Integrate Pass
             granularIntegrateKernel<<<blocks, kGranularThreadsPerBlock, 0, stream>>>(
-                pool.pos, pool.vel, pool.pred, pool.flags, pool.aliveCount, invSubstepDt);
+                pool.pos, pool.vel, pool.pred, pool.flags, pool.aliveCount,
+                invSubstepDt, substepDt, settings.materials[0].damping);
         }
 
         // Reduce stats

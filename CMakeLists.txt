@@ -32,8 +32,10 @@ add_library(VParticlesCore STATIC
     "VParticles/src/interop/ExternalInterop.cu"
     "VParticles/src/granular/GranularSystem.cu"
     "VParticles/src/granular/JacobiContactSolver.cu"
+    "VParticles/src/granular/GaussSeidelContactSolver.cu"
     "VParticles/src/granular/GranularNeighborSearch.cu"
     "VParticles/src/granular/GranularNeighborValidation.cu"
+    "VParticles/src/granular/GranularSolverValidation.cu"
 )
 
 target_include_directories(VParticlesCore PUBLIC

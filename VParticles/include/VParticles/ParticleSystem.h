@@ -5,9 +5,12 @@
 #include "VParticles/GranularTypes.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace vparticles {
+
+class IContactSolver;
 
 class ParticleSystem {
 public:
@@ -46,6 +49,7 @@ public:
 
     void setGranularSettings(const GranularSettings& settings);
     const GranularSettings& granularSettings() const;
+    void setContactSolver(std::unique_ptr<IContactSolver> solver);
     const GranularPool& granularBuffers() const;
     const GranularStats& granularStats() const;
     void spawnGranularLattice(

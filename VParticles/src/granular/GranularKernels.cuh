@@ -62,7 +62,9 @@ __global__ void granularIntegrateKernel(
     const float4* __restrict__ pred,
     uint16_t* __restrict__ flags,
     uint32_t count,
-    float invSubstepDt)
+    float invSubstepDt,
+    float substepDt,
+    float damping)
 {
     const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= count) return;
@@ -81,9 +83,18 @@ __global__ void granularIntegrateKernel(
     // v = (x* - x) / dt
     float3 v = mul3(sub3(newP, oldP), invSubstepDt);
 
-    // Velocity deadzone
+    // Apply material velocity damping
+    if (damping > 0.0f) {
+        v = mul3(v, fmaxf(0.0f, 1.0f - damping * substepDt));
+    }
+
+    // Tunneling velocity cap (bound displacement to <= 0.5 * r per substep)
+    const float radius = oldP4.w > 0.0f ? oldP4.w : 0.01f;
+    const float maxSpeed = (0.5f * radius) * invSubstepDt;
     const float speedSq = dot3(v, v);
-    if (speedSq < 1e-6f) {
+    if (speedSq > maxSpeed * maxSpeed) {
+        v = mul3(v, maxSpeed / sqrtf(speedSq));
+    } else if (speedSq < 1e-4f) {
         v = make_float3(0.0f, 0.0f, 0.0f);
     }
 

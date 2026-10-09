@@ -510,6 +510,11 @@ const GranularSettings& ParticleSystem::granularSettings() const
     return impl_->getOrCreateGranular().settings();
 }
 
+void ParticleSystem::setContactSolver(std::unique_ptr<IContactSolver> solver)
+{
+    impl_->getOrCreateGranular().setContactSolver(std::move(solver));
+}
+
 const GranularPool& ParticleSystem::granularBuffers() const
 {
     return impl_->getOrCreateGranular().pool();

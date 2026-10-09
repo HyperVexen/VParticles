@@ -1,4 +1,5 @@
 #include "VParticles/ParticleSystem.h"
+#include "VParticles/ContactSolver.h"
 #include "VParticles/GranularValidation.h"
 
 #include "VParticles/CudaCheck.h"
@@ -248,6 +249,9 @@ struct BenchmarkConfig {
     std::string sandScenario = "free-fall";
     bool analyticCheck = false;
     bool neighborCheck = false;
+    bool solverCheck = false;
+    std::string solverType = "gs";
+    float friction = 0.45f;
     float skinRatio = 0.20f;
 };
 
@@ -723,13 +727,25 @@ SandBenchmarkResult runSandBenchmark(const BenchmarkConfig& config, const std::s
     gSettings.groundPlane.point = {0.0f, 0.0f, 0.0f};
     gSettings.groundPlane.normal = {0.0f, 1.0f, 0.0f};
     gSettings.groundPlane.bounce = 0.5f;
-    gSettings.groundPlane.friction = 0.1f;
+    if (config.sandScenario == "stacking" || config.sandScenario == "box") {
+        gSettings.containerBox.enabled = 1;
+        gSettings.containerBox.minBounds = {-0.5f, 0.0f, -0.5f};
+        gSettings.containerBox.maxBounds = {0.5f, 3.0f, 0.5f};
+    }
+    gSettings.materials[0].staticFriction = config.friction;
+    gSettings.materials[0].dynamicFriction = config.friction * 0.9f;
 
     gSettings.skinRatio = config.skinRatio;
     system.setGranularSettings(gSettings);
 
+    if (config.solverType == "jacobi") {
+        system.setContactSolver(vparticles::createJacobiContactSolver());
+    } else {
+        system.setContactSolver(vparticles::createGaussSeidelContactSolver());
+    }
+
     std::cout << "\n======================================================\n";
-    std::cout << "  VParticles Granular Simulation Benchmark (Phase 11B)\n";
+    std::cout << "  VParticles Granular Simulation Benchmark (Phase 11D)\n";
     std::cout << "======================================================\n";
     std::cout << "scenario=" << config.sandScenario
               << " capacity=" << config.capacity
@@ -1081,6 +1097,12 @@ int main(int argc, char** argv)
                 config.analyticCheck = true;
             } else if (arg == "--neighbor-check") {
                 config.neighborCheck = true;
+            } else if (arg == "--solver-check") {
+                config.solverCheck = true;
+            } else if (arg == "--solver" && index + 1 < argc) {
+                config.solverType = argv[++index];
+            } else if (arg == "--friction" && index + 1 < argc) {
+                config.friction = parseFloatArg(argv[++index], config.friction);
             } else if (arg == "--skin-ratio" && index + 1 < argc) {
                 config.skinRatio = parseFloatArg(argv[++index], config.skinRatio);
             } else if (arg == "--csv" && index + 1 < argc) {
@@ -1094,6 +1116,12 @@ int main(int argc, char** argv)
         if (config.neighborCheck) {
             const vparticles::NeighborValidationResult res =
                 vparticles::runNeighborValidationSuite(config.capacity, config.skinRatio);
+            return res.passed ? 0 : 1;
+        }
+
+        if (config.solverCheck) {
+            const vparticles::SolverValidationResult res =
+                vparticles::runSolverValidationSuite(config.capacity);
             return res.passed ? 0 : 1;
         }
 

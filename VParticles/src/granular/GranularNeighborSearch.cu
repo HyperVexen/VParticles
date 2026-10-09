@@ -454,6 +454,10 @@ void GranularNeighborSearch::build(
     findColorBoundsKernel<<<blocks, kNeighborThreadsPerBlock, 0, stream>>>(
         impl_->d_colorKeysOut, impl_->neighborData.colorOffsets, count);
 
+    VP_CUDA_CHECK(cudaMemcpyAsync(
+        impl_->neighborData.hostColorOffsets, impl_->neighborData.colorOffsets,
+        sizeof(uint32_t) * 9, cudaMemcpyDeviceToHost, stream));
+
     VP_CUDA_CHECK(cudaEventRecord(impl_->evEnd, stream));
     VP_CUDA_CHECK(cudaStreamSynchronize(stream));
 
