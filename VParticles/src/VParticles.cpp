@@ -1,4 +1,5 @@
 #include "VParticles/ParticleSystem.h"
+#include "VParticles/GranularValidation.h"
 
 #include "VParticles/CudaCheck.h"
 
@@ -237,6 +238,17 @@ struct BenchmarkConfig {
     uint32_t tileCount = 1;
     float tileScale = 100.0f;
     uint32_t recipeCount = 1;
+    bool sandMode = false;
+    float dropHeight = 10.0f;
+    float grainRadius = 0.01f;
+    float radiusJitter = 0.0f;
+    uint32_t substeps = 0;
+    uint32_t iterations = 0;
+    std::string sandQuality = "preview";
+    std::string sandScenario = "free-fall";
+    bool analyticCheck = false;
+    bool neighborCheck = false;
+    float skinRatio = 0.20f;
 };
 
 struct BenchmarkResult {
@@ -671,6 +683,210 @@ BenchmarkResult runBenchmark(const BenchmarkConfig& config, uint32_t sampleEvery
     return result;
 }
 
+// ── Granular / Sand Benchmark Runner ─────────────────────────────────
+
+struct SandBenchmarkResult {
+    BenchmarkConfig config = {};
+    vparticles::GranularStats finalStats = {};
+    float maxFreeFallErrorPct = 0.0f;
+    bool analyticPassed = false;
+    TimingPercentiles stepPercentiles = {};
+};
+
+SandBenchmarkResult runSandBenchmark(const BenchmarkConfig& config, const std::string& csvPath)
+{
+    vparticles::ParticleSystem system(config.capacity, vparticles::StorageMode::FP32, config.useGraph);
+    system.setSimulationMode(vparticles::SimulationMode::Granular);
+
+    vparticles::GranularSettings gSettings = system.granularSettings();
+    if (config.sandQuality == "draft") {
+        gSettings.applyQuality(vparticles::GranularQuality::Draft);
+    } else if (config.sandQuality == "final") {
+        gSettings.applyQuality(vparticles::GranularQuality::Final);
+    } else {
+        gSettings.applyQuality(vparticles::GranularQuality::Preview);
+    }
+
+    if (config.substeps > 0) gSettings.substeps = config.substeps;
+    if (config.iterations > 0) gSettings.iterations = config.iterations;
+    gSettings.grainRadius = config.grainRadius;
+    gSettings.radiusJitter = config.radiusJitter;
+    gSettings.fixedDt = config.dt;
+    gSettings.materials[0].radius = config.grainRadius;
+
+    // For pure ballistic trajectory verification, zero drag
+    if (config.analyticCheck || config.sandScenario == "free-fall") {
+        gSettings.materials[0].drag = 0.0f;
+    }
+
+    gSettings.groundPlane.enabled = true;
+    gSettings.groundPlane.point = {0.0f, 0.0f, 0.0f};
+    gSettings.groundPlane.normal = {0.0f, 1.0f, 0.0f};
+    gSettings.groundPlane.bounce = 0.5f;
+    gSettings.groundPlane.friction = 0.1f;
+
+    gSettings.skinRatio = config.skinRatio;
+    system.setGranularSettings(gSettings);
+
+    std::cout << "\n======================================================\n";
+    std::cout << "  VParticles Granular Simulation Benchmark (Phase 11B)\n";
+    std::cout << "======================================================\n";
+    std::cout << "scenario=" << config.sandScenario
+              << " capacity=" << config.capacity
+              << " frames=" << config.frames
+              << " dt=" << std::fixed << std::setprecision(6) << config.dt
+              << " dropHeight=" << std::setprecision(1) << config.dropHeight << "m"
+              << " substeps=" << gSettings.substeps
+              << " iterations=" << gSettings.iterations
+              << " grainRadius=" << std::setprecision(4) << config.grainRadius
+              << " jitter=" << std::setprecision(2) << config.radiusJitter
+              << " quality=" << config.sandQuality
+              << " submission=" << (config.useGraph ? "[graph]" : "[eager]")
+              << "\n\n";
+
+    const float spacing = config.grainRadius * 2.0f;
+    system.spawnGranularLattice(
+        {0.0f, config.dropHeight, 0.0f},
+        config.capacity,
+        spacing,
+        config.radiusJitter,
+        {0.0f, 0.0f, 0.0f});
+    system.synchronize();
+
+    const auto initialStats = system.granularStats();
+    const float initialMeanHeight = initialStats.meanHeight;
+    const float initialMaxHeight = initialStats.maxHeight;
+    const float gravityMag = std::abs(gSettings.gravity.y);
+
+    std::cout << "Initial state: " << initialStats.aliveCount << " grains spawned.\n"
+              << "  meanHeight: " << std::fixed << std::setprecision(4) << initialMeanHeight << " m\n"
+              << "  maxHeight:  " << initialMaxHeight << " m\n\n";
+
+    std::cout << std::setw(6) << "frame"
+              << std::setw(10) << "time_s"
+              << std::setw(12) << "mean_y_m"
+              << std::setw(12) << "max_y_m"
+              << std::setw(12) << "ke"
+              << std::setw(11) << "step_ms";
+    if (config.analyticCheck) {
+        std::cout << std::setw(14) << "analytic_y"
+                  << std::setw(9) << "err_%";
+    }
+    std::cout << '\n';
+    std::cout << std::string(config.analyticCheck ? 76 : 53, '-') << '\n';
+
+    std::vector<float> stepTimings;
+    stepTimings.reserve(config.frames);
+
+    float maxFreeFallErrorPct = 0.0f;
+    bool analyticPassed = true;
+
+    std::ofstream csvFile;
+    if (!csvPath.empty()) {
+        csvFile.open(csvPath);
+        if (csvFile) {
+            csvFile << "frame,simTime,aliveCount,meanHeight,maxHeight,ke,stepMs";
+            if (config.analyticCheck) {
+                csvFile << ",analyticHeight,errorPct";
+            }
+            csvFile << '\n';
+        }
+    }
+
+    for (uint32_t frame = 1; frame <= config.frames; ++frame) {
+        system.update(config.dt);
+        system.synchronize();
+        const auto& stats = system.granularStats();
+
+        stepTimings.push_back(stats.stepMs);
+
+        // Analytic ballistic comparison
+        // Before ground impact (simTime <= 1.0s or while falling)
+        const float analyticY = initialMeanHeight - 0.5f * gravityMag * stats.simTime * stats.simTime;
+        float errPct = 0.0f;
+        const bool inFreeFall = (stats.simTime <= 1.0f);
+        if (inFreeFall && analyticY > 0.1f) {
+            const float absErr = std::abs(stats.meanHeight - analyticY);
+            errPct = (absErr / analyticY) * 100.0f;
+            if (errPct > maxFreeFallErrorPct) {
+                maxFreeFallErrorPct = errPct;
+            }
+            if (errPct >= 1.0f) {
+                analyticPassed = false;
+            }
+        }
+
+        if (csvFile) {
+            csvFile << frame << ','
+                    << stats.simTime << ','
+                    << stats.aliveCount << ','
+                    << stats.meanHeight << ','
+                    << stats.maxHeight << ','
+                    << stats.kineticEnergy << ','
+                    << stats.stepMs;
+            if (config.analyticCheck) {
+                csvFile << ',' << analyticY << ',' << errPct;
+            }
+            csvFile << '\n';
+        }
+
+        if (frame == 1 || frame % 10 == 0 || frame == config.frames) {
+            std::cout << std::setw(6) << frame
+                      << std::setw(10) << std::fixed << std::setprecision(4) << stats.simTime
+                      << std::setw(12) << stats.meanHeight
+                      << std::setw(12) << stats.maxHeight
+                      << std::setw(12) << std::setprecision(1) << stats.kineticEnergy
+                      << std::setw(11) << std::setprecision(3) << stats.stepMs;
+            if (config.analyticCheck) {
+                if (inFreeFall) {
+                    std::cout << std::setw(14) << std::setprecision(4) << analyticY
+                              << std::setw(8) << std::setprecision(3) << errPct << "%";
+                } else {
+                    std::cout << std::setw(14) << "impact/bounce"
+                              << std::setw(9) << "-";
+                }
+            }
+            std::cout << '\n';
+        }
+    }
+
+    SandBenchmarkResult result;
+    result.config = config;
+    result.finalStats = system.granularStats();
+    result.maxFreeFallErrorPct = maxFreeFallErrorPct;
+    result.analyticPassed = analyticPassed;
+    result.stepPercentiles = computePercentiles(stepTimings);
+
+    std::cout << "\n--- Sand Benchmark Summary ---\n"
+              << "Frames simulated:    " << config.frames << '\n'
+              << "Final alive grains:  " << result.finalStats.aliveCount << '\n'
+              << "Step time (p50):     " << std::fixed << std::setprecision(3) << result.stepPercentiles.p50 << " ms\n"
+              << "Step time (p95):     " << result.stepPercentiles.p95 << " ms\n"
+              << "Step time (p99):     " << result.stepPercentiles.p99 << " ms\n"
+              << "Total solve time:    " << result.finalStats.totalMs << " ms\n"
+              << "Neighbor rebuilds:   " << result.finalStats.neighborRebuildCount << '\n'
+              << "Neighbor overflows:  " << result.finalStats.neighborOverflowCount << '\n'
+              << "Neighbor rebuild ms: " << result.finalStats.neighborRebuildMs << " ms\n"
+              << "Neighbor amortized:  " << result.finalStats.neighborAmortizedMs << " ms/frame\n";
+
+    if (config.analyticCheck) {
+        std::cout << "\n--- Analytic Ballistic Trajectory Verification (Phase 11B Gate) ---\n"
+                  << "Max free-fall trajectory error (t <= 1.0s): " << std::fixed << std::setprecision(3)
+                  << maxFreeFallErrorPct << "% (Target: < 1.0%)\n";
+        if (analyticPassed && maxFreeFallErrorPct < 1.0f) {
+            std::cout << "[VERDICT] Phase 11B Free-fall Ballistic Trajectory Check: PASSED!\n";
+        } else {
+            std::cout << "[VERDICT] Phase 11B Free-fall Ballistic Trajectory Check: FAILED!\n";
+        }
+    }
+
+    if (!csvPath.empty()) {
+        std::cout << "CSV written to " << csvPath << '\n';
+    }
+
+    return result;
+}
+
 // ── Matrix terminal output ───────────────────────────────────────────
 
 void printMatrixHeader()
@@ -845,6 +1061,28 @@ int main(int argc, char** argv)
                     std::max(1u, parseUintArg(argv[++index], config.recipeCount)));
             } else if (arg == "--tile-scale" && index + 1 < argc) {
                 config.tileScale = parseFloatArg(argv[++index], config.tileScale);
+            } else if (arg == "--sand") {
+                config.sandMode = true;
+            } else if (arg == "--grain-radius" && index + 1 < argc) {
+                config.grainRadius = parseFloatArg(argv[++index], config.grainRadius);
+            } else if (arg == "--radius-jitter" && index + 1 < argc) {
+                config.radiusJitter = parseFloatArg(argv[++index], config.radiusJitter);
+            } else if (arg == "--drop-height" && index + 1 < argc) {
+                config.dropHeight = parseFloatArg(argv[++index], config.dropHeight);
+            } else if (arg == "--substeps" && index + 1 < argc) {
+                config.substeps = parseUintArg(argv[++index], config.substeps);
+            } else if (arg == "--iterations" && index + 1 < argc) {
+                config.iterations = parseUintArg(argv[++index], config.iterations);
+            } else if ((arg == "--sand-quality" || arg == "--quality") && index + 1 < argc) {
+                config.sandQuality = argv[++index];
+            } else if (arg == "--sand-scenario" && index + 1 < argc) {
+                config.sandScenario = argv[++index];
+            } else if (arg == "--analytic-check") {
+                config.analyticCheck = true;
+            } else if (arg == "--neighbor-check") {
+                config.neighborCheck = true;
+            } else if (arg == "--skin-ratio" && index + 1 < argc) {
+                config.skinRatio = parseFloatArg(argv[++index], config.skinRatio);
             } else if (arg == "--csv" && index + 1 < argc) {
                 csvPath = argv[++index];
             }
@@ -852,6 +1090,17 @@ int main(int argc, char** argv)
 
         const GpuDeviceInfo gpuInfo = queryGpuDeviceInfo();
         printGpuDeviceInfo(gpuInfo);
+
+        if (config.neighborCheck) {
+            const vparticles::NeighborValidationResult res =
+                vparticles::runNeighborValidationSuite(config.capacity, config.skinRatio);
+            return res.passed ? 0 : 1;
+        }
+
+        if (config.sandMode) {
+            const SandBenchmarkResult sandResult = runSandBenchmark(config, csvPath);
+            return (sandResult.analyticPassed || !config.analyticCheck) ? 0 : 1;
+        }
 
         if (!runMatrix) {
             if (!explicitSpawnRate) {

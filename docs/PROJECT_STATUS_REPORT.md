@@ -10,9 +10,23 @@ The current target is game VFX simulation with 10M+ live particles on NVIDIA GPU
 
 ## Active Work
 
-- **Saga 2 / Phase 11A: Granular Foundations** is in progress. The first deliverable establishes pre-code solver-spike criteria, a Houdini control inventory, and a point-cache contract; it makes no unmeasured performance or parity claim. See [Phase 11A Granular Foundations](PHASE_11A_GRANULAR_FOUNDATIONS.md).
+- **Saga 2 / Phase 11D: Cell-Colored Gauss-Seidel Contact Solver & Friction** is next.
+  - Phase 11C has **passed all 5 exit gates**: 10,000 grains 100% bit-exact pair match vs $O(N^2)$ brute force, 1,000,000 grains amortized rebuild latency 0.896 ms / substep ($\le 1.5$ ms budget), 100% bit-exact determinism across 5 runs, explicit device overflow counter, and 36/36 matrix workloads passing with zero regression. See [Phase 11C Spatial Neighbor Structure](PHASE_11C_NEIGHBOR_STRUCTURE.md).
+  - Phase 11B exit criteria **passed**: 1,000,000 grains free-fall ballistic trajectory matched analytic within 0.510% error. See [Phase 11B Granular Pool Runtime](PHASE_11B_GRANULAR_POOL_RUNTIME.md).
 
 ## Completed Work
+
+- **Phase 11C Spatial Neighbor Structure & Verlet Lists Complete:**
+  - Production GPU uniform spatial hashing + CUB radix sort + Verlet list pipeline (`GranularNeighborSearch`).
+  - Dynamic 2-pass parallel bounding box reduction adapting grid to particle domain without static bounds (< 0.05 ms).
+  - Linear 32-bit spatial key sorting preserving L1/L2 cache locality with zero-copy dense SoA pointer swapping.
+  - Fixed 32-slot Verlet lists with skin buffer (`skinRatio = 0.20`) and $O(N)$ displacement check rebuild trigger.
+  - Passed all 5 exit criteria gates: Gate 11C-1 (10K pair match), Gate 11C-2 (1M latency $\le 1.5$ ms), Gate 11C-3 (5-run determinism), Gate 11C-4 (overflow counter), Gate 11C-5 (zero matrix regression).
+- **Phase 11B Granular Pool & Fixed-Step Runtime Complete:**
+  - Implemented `GranularPool` with dense FP32 SoA layout (60 bytes/slot).
+  - Substepped fixed-dt accumulator with symplectic Euler integration and CUDA Graph capture.
+  - Extensible `IContactSolver` abstraction and baseline `JacobiContactSolver`.
+  - Verified 1M grains ballistic free-fall within 0.510% error vs analytic ground truth.
 
 - Replaced the legacy application surface with a headless C++20/CUDA benchmark.
 - Created one global FP32 structure-of-arrays pool for position, velocity, color, age, lifetime, and `systemId`.
@@ -179,6 +193,7 @@ Key observations:
 ## Current Architecture
 
 ```text
+Effects Mode:
 simulate active particles
   -> apply drag, gravity, wind
   -> compute divergence-free curl noise in registers
@@ -191,9 +206,27 @@ simulate active particles
   -> reserve and spawn into reclaimed slots (assigned to emitter tileId)
   -> migrate cross-tile particles and compute tile alive counts (zero-copy)
   -> publish delayed telemetry & tile stats
+
+Granular Mode (Saga 2):
+fixed-step accumulator (dt clamp)
+  -> substepping loop (dt / substeps)
+  -> symplectic Euler predict kernel (external forces, gravity, drag)
+  -> contact solver passes (IContactSolver::solve)
+  -> symplectic Euler integrate kernel (velocity reconstruction, deadzones)
+  -> warp-shuffle & shared-memory stats reduction (mean height, peak height, KE)
+  -> CUDA Graph replay for stationary substep topologies
 ```
 
-The active-index/free-list design avoids expensive full-attribute gathers during lifecycle updates. Host-visible `ParticlePool` counters are completed telemetry snapshots; CUDA consumers that need current active-list state should use `ParticleSystem::gpuBuffers()`.
+### 6. Phase 11B Granular Simulation Validation
+
+Tested on **NVIDIA GeForce RTX 3050 6GB Laptop GPU** (CUDA 13.3, 1,000,000 grains, 120 frames):
+
+| Scenario | Quality | Substeps | Iterations | Free-Fall Trajectory Error | Step Time (p50) | Effective Throughput | Gate Status |
+|---|---|---:|---:|---:|---:|---:|:---:|
+| 1M Free-Fall Drop | Preview | 4 | 4 | **0.510%** (Target: $< 1.0\%$) | **5.486 ms** | **182 FPS** | **PASSED** |
+| 1M Free-Fall Drop | Final | 8 | 4 | **0.755%** (Target: $< 1.0\%$) | **10.515 ms** | **95 FPS** | **PASSED** |
+
+Complete 36-workload `--matrix` regression suite passed with zero degradation. See [Phase 11B Granular Pool & Runtime](PHASE_11B_GRANULAR_POOL_RUNTIME.md).
 
 ## Known Limits
 
@@ -202,9 +235,9 @@ The active-index/free-list design avoids expensive full-attribute gathers during
 
 ## Next Work
 
-### Phase 11: Modern Engine Plugins & Async Compute Overlap
+### Phase 11C: Cell-Colored Gauss-Seidel Contact Solver
 
-- Unreal Engine 5 Niagara / Custom RHI extension plugin.
-- Direct DX12 Async Compute Queue overlap (simulating VFX on compute queue asynchronously while rasterizer executes G-buffer / lighting passes).
-- Clustered forward and deferred light injection into particle volumes.
-- Depth buffer scene collisions (depth buffer texture sharing with compute shader).
+- Port verified Phase 11A Verlet neighbour search into production `GranularNeighborSearch`.
+- Implement `ColoredGaussSeidelContactSolver` for grain-to-grain contact resolution.
+- Validate pile settling angle of repose and non-penetration.
+

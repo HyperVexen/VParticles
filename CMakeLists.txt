@@ -30,6 +30,10 @@ FetchContent_MakeAvailable(glfw)
 add_library(VParticlesCore STATIC
     "VParticles/src/ParticleSystem.cu"
     "VParticles/src/interop/ExternalInterop.cu"
+    "VParticles/src/granular/GranularSystem.cu"
+    "VParticles/src/granular/JacobiContactSolver.cu"
+    "VParticles/src/granular/GranularNeighborSearch.cu"
+    "VParticles/src/granular/GranularNeighborValidation.cu"
 )
 
 target_include_directories(VParticlesCore PUBLIC
@@ -67,6 +71,51 @@ target_link_libraries(Phase11ADemReference PRIVATE
 set_target_properties(Phase11ADemReference PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
 )
+
+if(MSVC)
+    target_compile_options(Phase11ADemReference PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
+    )
+endif()
+
+add_executable(Phase11ANeighborSpike EXCLUDE_FROM_ALL
+    "spikes/Phase11A_NeighborSpike.cu"
+)
+
+target_link_libraries(Phase11ANeighborSpike PRIVATE
+    CUDA::cudart
+)
+
+set_target_properties(Phase11ANeighborSpike PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+)
+
+if(MSVC)
+    target_compile_options(Phase11ANeighborSpike PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
+    )
+endif()
+
+add_executable(Phase11ASolverSpike EXCLUDE_FROM_ALL
+    "spikes/Phase11A_SolverSpike.cu"
+)
+
+target_link_libraries(Phase11ASolverSpike PRIVATE
+    CUDA::cudart
+)
+
+set_target_properties(Phase11ASolverSpike PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+)
+
+if(MSVC)
+    target_compile_options(Phase11ASolverSpike PRIVATE
+        $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
+    )
+endif()
 
 # ----------------------------------------------------------------------
 # 2. Headless Benchmark Executable

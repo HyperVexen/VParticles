@@ -208,26 +208,41 @@ Next refinement:
 - Validated via `VParticlesD3D12InteropTest.exe` on RTX 3050 Laptop GPU at 3,564 FPS (0.28 ms/frame) with 100% data and hardware fence verification.
 - Integration guide and architecture report in [docs/PHASE_10B_MODERN_ENGINE_INTEROP.md](docs/PHASE_10B_MODERN_ENGINE_INTEROP.md).
 
-## Phase 11: Granular Simulation (Saga 2) — In Progress
+## Milestone Complete: Phase 11A - Granular Foundations & Spikes
 
-- Build a Houdini Vellum/POP Grains-style, particle-only granular mode with no grid-based physical solver.
-- Phase 11A has started with the parity, point-cache, and solver-spike measurement gate documented in [Granular Foundations](docs/PHASE_11A_GRANULAR_FOUNDATIONS.md).
-- Do not begin production granular runtime work until Gate G0 records neighbour and contact-solver measurements.
-- Preserve effects-mode benchmark behaviour; the existing `--matrix` remains the mandatory regression gate.
+- Built empirical spikes for spatial neighbour queries and contact solving on NVIDIA GeForce RTX 3050 Laptop GPU:
+  - `Phase11ANeighborSpike.exe`: Verlet neighbour search with skin-triggered rebuilds, achieving 0.667 ms amortized rebuild at 1M grains (< 1.5 ms budget) with 100% bit-exact determinism across 5 runs.
+  - `Phase11ASolverSpike.exe`: XPBD Jacobi vs. Cell-Colored Gauss-Seidel contact solvers, achieving 0.740 ms pass at 250K grains (< 1.0 ms budget) and 3.230 ms pass at 1M grains (< 3.5 ms budget).
+  - Validated shockwave transmission through 50-grain column (1.28 m/s) and settling pour monotonic kinetic energy decay (95,047 -> 118).
+- Gate G0 closed as **PASSED**; see [docs/PHASE_11A_GRANULAR_FOUNDATIONS.md](docs/PHASE_11A_GRANULAR_FOUNDATIONS.md).
 
-## First Build Target
+## Milestone Complete: Phase 11B - Granular Pool, Fixed-Step Runtime, and Solver Interface
 
-The first implementation target is:
+- Implemented `GranularPool` with dense FP32 Structure-of-Arrays (SoA) layout (60 bytes/slot: `pos`, `vel`, `pred`, `tint`, `materialId`, `flags`, `grainId`).
+- Implemented fixed-step accumulator runtime (`GranularSystem`) preventing spiral-of-death with substepped symplectic Euler predict/integrate and CUDA Graph capture replay.
+- Created extensible `IContactSolver` abstraction with baseline analytical `JacobiContactSolver`.
+- Integrated dual-mode execution (`SimulationMode::Effects` vs `SimulationMode::Granular`) into `ParticleSystem`.
+- Extended `VParticles.exe` with granular CLI suite: `--sand`, `--grain-radius`, `--radius-jitter`, `--drop-height`, `--substeps`, `--iterations`, `--quality`, `--sand-scenario`, `--analytic-check`.
+- **Phase 11B Exit Criterion Verified**: 1,000,000 grains free-fall ballistic trajectory matched analytic solution within **0.510%** error (Target: $< 1.0\%$).
+- **Zero Effects Regression**: Complete 36-workload `--matrix` suite verified with full bandwidth parity up to 221.2 GB/s.
+- Detailed report in [docs/PHASE_11B_GRANULAR_POOL_RUNTIME.md](docs/PHASE_11B_GRANULAR_POOL_RUNTIME.md).
 
-```text
-Headless benchmark executable
-+ one global FP32 SoA particle pool
-+ one point emitter
-+ spawn kernel
-+ simulate kernel
-+ GPU-resident active-list compaction
-+ delayed telemetry stats readback
-+ benchmark output
-```
+## Milestone Complete: Phase 11C - Spatial Neighbor Structure & Verlet Lists
 
-Once that is correct and profiled, expand to multiple emitters, grouping, packed storage, and CUDA Graphs.
+- Production-hardened GPU uniform spatial hashing + CUB radix sort + Verlet list pipeline (`GranularNeighborSearch`).
+- Dynamic 2-pass parallel bounding box reduction adapting grid to particle domain without static bounds (< 0.05 ms).
+- Linear 32-bit spatial key sorting preserving L1/L2 cache locality with zero-copy dense SoA pointer swapping.
+- Fixed 32-slot Verlet lists with skin buffer (`skinRatio = 0.20`) and $O(N)$ displacement check rebuild trigger.
+- **Gate 11C-1 PASSED:** 10,000 grains 100% bit-exact pair match vs $O(N^2)$ brute-force ground truth (57,198 pairs discovered, 0 false positives, 0 missed).
+- **Gate 11C-2 PASSED:** 1,000,000 grains amortized rebuild latency 0.896 ms / substep (budget: $\le 1.5$ ms).
+- **Gate 11C-3 PASSED:** 100% bit-exact determinism across 5 runs on 100,000 grains (state hash `0xa36c93921c6809c9`).
+- **Gate 11C-4 PASSED:** Explicit device overflow counter and telemetry tracking (clamped to 32 slots, zero corruption).
+- **Gate 11C-5 PASSED:** Zero regression in default effects mode (36 / 36 workloads passed, up to 226.5 GB/s bandwidth).
+- Detailed report in [docs/PHASE_11C_NEIGHBOR_STRUCTURE.md](docs/PHASE_11C_NEIGHBOR_STRUCTURE.md).
+
+## Phase 11D: Cell-Colored Gauss-Seidel Contact Solver & Friction (Next)
+
+- Implement 8-color cell-partitioned Gauss-Seidel XPBD contact solver utilizing Phase 11C neighbor lists and color tables.
+- Add Coulomb friction model (static + dynamic friction cones) with compliance-weighted stabilization.
+- Validate non-penetration, column shockwave propagation, resting sand pile angle of repose ($30^\circ - 35^\circ$), and solver latency budget ($\le 3.5$ ms at 1M grains).
+

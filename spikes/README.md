@@ -19,3 +19,41 @@ Reproducible initial settling run:
 ```
 
 The source prints mean/max height, kinetic energy, maximum overlap, and milliseconds per DEM substep. Preserve the CSV and exact command alongside any Phase 11A calibration interpretation.
+
+## Neighbor structure & Verlet list spike
+
+`Phase11A_NeighborSpike.cu` evaluates spatial hash key generation, CUB radix sort, cell range construction, dense SoA reordering, Verlet list construction (32 slots), displacement checks, and skin-triggered amortization. It includes a 10K brute-force validation verifying bit-exact neighbor discovery and a 5-run determinism test.
+
+Build:
+
+```powershell
+cmake --build out/build/x64-Release --target Phase11ANeighborSpike
+```
+
+Reproducible 1M benchmark run:
+
+```powershell
+.\out\build\x64-Release\Phase11ANeighborSpike.exe --grains 1000000 --runs 10 --csv phase11a_neighbor_1m.csv
+```
+
+Reproducible 250K benchmark run:
+
+```powershell
+.\out\build\x64-Release\Phase11ANeighborSpike.exe --grains 250000 --runs 10 --csv phase11a_neighbor_250k.csv
+```
+
+## Contact solver spike (XPBD Jacobi vs Cell-Colored Gauss-Seidel)
+
+`Phase11A_SolverSpike.cu` evaluates XPBD Jacobi and 8-color Gauss-Seidel contact solve latency, DRAM bandwidth, 100K-grain stack compression, 50-grain vertical vibration transmission, and settling pour awake fractions.
+
+Build:
+
+```powershell
+cmake --build out/build/x64-Release --target Phase11ASolverSpike
+```
+
+Reproducible full benchmark suite:
+
+```powershell
+.\out\build\x64-Release\Phase11ASolverSpike.exe --scenario all --csv phase11a_solver_results.csv
+```

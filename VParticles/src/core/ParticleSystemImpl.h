@@ -6,6 +6,7 @@
 #include "CompactionKernels.cuh"
 #include "SpawnKernels.cuh"
 #include "TileKernels.cuh"
+#include "granular/GranularSystem.h"
 
 #include "VParticles/ParticleSystem.h"
 
@@ -632,6 +633,16 @@ struct ParticleSystem::Impl {
     bool graphsEnabled = true;
     bool lastFrameUsedGraph = false;
     uint32_t graphRebuildCount = 0;
+    SimulationMode simMode = SimulationMode::Effects;
+    std::unique_ptr<GranularSystem> granularSystem;
+
+    GranularSystem& getOrCreateGranular()
+    {
+        if (!granularSystem) {
+            granularSystem = std::make_unique<GranularSystem>(pool.capacity, graphsEnabled);
+        }
+        return *granularSystem;
+    }
 };
 
 } // namespace vparticles

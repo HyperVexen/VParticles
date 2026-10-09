@@ -77,6 +77,11 @@ void ParticleSystem::queueBurst(uint32_t systemId, uint32_t count)
 
 void ParticleSystem::update(float dt)
 {
+    if (impl_->simMode == SimulationMode::Granular) {
+        impl_->getOrCreateGranular().update(dt);
+        return;
+    }
+
     impl_->pollTelemetry();
     dt = std::max(0.0f, dt);
 
@@ -279,6 +284,13 @@ void ParticleSystem::update(float dt)
 
 void ParticleSystem::reset()
 {
+    if (impl_->simMode == SimulationMode::Granular) {
+        if (impl_->granularSystem) {
+            impl_->granularSystem->reset();
+        }
+        return;
+    }
+
     impl_->initializeFreeList();
     impl_->stats = {};
     impl_->stats.capacity = impl_->pool.capacity;
@@ -399,6 +411,13 @@ uint32_t ParticleSystem::recipeCount() const
 
 void ParticleSystem::synchronize()
 {
+    if (impl_->simMode == SimulationMode::Granular) {
+        if (impl_->granularSystem) {
+            impl_->granularSystem->synchronize();
+        }
+        return;
+    }
+
     VP_CUDA_CHECK(cudaStreamSynchronize(impl_->stream));
     impl_->pollTelemetry();
     impl_->pollSpawnUploadSlots();
@@ -469,6 +488,47 @@ const SimulationStats& ParticleSystem::stats() const
 const std::vector<TileStats>& ParticleSystem::tileStats() const
 {
     return impl_->tileStats;
+}
+
+SimulationMode ParticleSystem::simulationMode() const
+{
+    return impl_->simMode;
+}
+
+void ParticleSystem::setSimulationMode(SimulationMode mode)
+{
+    impl_->simMode = mode;
+}
+
+void ParticleSystem::setGranularSettings(const GranularSettings& settings)
+{
+    impl_->getOrCreateGranular().setSettings(settings);
+}
+
+const GranularSettings& ParticleSystem::granularSettings() const
+{
+    return impl_->getOrCreateGranular().settings();
+}
+
+const GranularPool& ParticleSystem::granularBuffers() const
+{
+    return impl_->getOrCreateGranular().pool();
+}
+
+const GranularStats& ParticleSystem::granularStats() const
+{
+    return impl_->getOrCreateGranular().stats();
+}
+
+void ParticleSystem::spawnGranularLattice(
+    const Float3& origin,
+    uint32_t count,
+    float spacing,
+    float jitterRatio,
+    const Float3& initialVel,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnLattice(origin, count, spacing, jitterRatio, initialVel, seed);
 }
 
 } // namespace vparticles
