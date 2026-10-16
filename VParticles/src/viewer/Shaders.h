@@ -36,6 +36,8 @@ inline const char* kParticleFragmentShaderSrc = R"(#version 450 core
 in vec4 vColor;
 out vec4 fragColor;
 
+uniform int uIsGranular;
+
 void main() {
     // gl_PointCoord has range [0, 1] inside point sprite
     vec2 coord = gl_PointCoord * 2.0 - 1.0;
@@ -44,10 +46,20 @@ void main() {
         discard;
     }
 
-    // Smooth circular alpha falloff
-    float shape = smoothstep(1.0, 0.0, distSq);
-    float alpha = vColor.a * shape;
-    fragColor = vec4(vColor.rgb, alpha);
+    if (uIsGranular != 0) {
+        // Shaded 3D sphere representation for granular grains
+        float nz = sqrt(1.0 - distSq);
+        vec3 N = vec3(coord.x, -coord.y, nz);
+        vec3 L = normalize(vec3(0.5, 0.8, 0.6));
+        float diff = max(0.35, dot(N, L));
+        float spec = pow(max(0.0, dot(reflect(-L, N), vec3(0.0, 0.0, 1.0))), 16.0) * 0.25;
+        fragColor = vec4(vColor.rgb * diff + vec3(spec), 1.0);
+    } else {
+        // Smooth circular alpha falloff for effects
+        float shape = smoothstep(1.0, 0.0, distSq);
+        float alpha = vColor.a * shape;
+        fragColor = vec4(vColor.rgb, alpha);
+    }
 }
 )";
 
@@ -95,6 +107,7 @@ public:
         uEyePosLoc_         = glGetUniformLocation(id_, "uEyePos");
         uViewportHeightLoc_ = glGetUniformLocation(id_, "uViewportHeight");
         uPointScaleLoc_     = glGetUniformLocation(id_, "uPointScale");
+        uIsGranularLoc_     = glGetUniformLocation(id_, "uIsGranular");
 
         return true;
     }
@@ -117,6 +130,10 @@ public:
 
     void setPointScale(float s) const {
         if (uPointScaleLoc_ >= 0) glUniform1f(uPointScaleLoc_, s);
+    }
+
+    void setIsGranular(bool isGranular) const {
+        if (uIsGranularLoc_ >= 0) glUniform1i(uIsGranularLoc_, isGranular ? 1 : 0);
     }
 
     GLuint id() const { return id_; }
@@ -145,6 +162,7 @@ private:
     GLint uEyePosLoc_ = -1;
     GLint uViewportHeightLoc_ = -1;
     GLint uPointScaleLoc_ = -1;
+    GLint uIsGranularLoc_ = -1;
 };
 
 } // namespace vparticles::viewer

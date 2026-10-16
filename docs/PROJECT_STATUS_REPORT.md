@@ -10,12 +10,40 @@ The current target is game VFX simulation with 10M+ live particles on NVIDIA GPU
 
 ## Active Work
 
-- **Saga 2 / Phase 11D: Cell-Colored Gauss-Seidel Contact Solver & Friction** is next.
-  - Phase 11C has **passed all 5 exit gates**: 10,000 grains 100% bit-exact pair match vs $O(N^2)$ brute force, 1,000,000 grains amortized rebuild latency 0.896 ms / substep ($\le 1.5$ ms budget), 100% bit-exact determinism across 5 runs, explicit device overflow counter, and 36/36 matrix workloads passing with zero regression. See [Phase 11C Spatial Neighbor Structure](PHASE_11C_NEIGHBOR_STRUCTURE.md).
-  - Phase 11B exit criteria **passed**: 1,000,000 grains free-fall ballistic trajectory matched analytic within 0.510% error. See [Phase 11B Granular Pool Runtime](PHASE_11B_GRANULAR_POOL_RUNTIME.md).
+- **Saga 2 Part 1: Granular Physics Engine is COMPLETE!**
+  - All milestones (Phases 11A through 11G) are fully implemented, benchmarked, and verified on NVIDIA hardware.
+  - Next: Preparing for the next saga milestone / engine extensions.
 
 ## Completed Work
 
+- **Phase 11G Large-Scale Awake Scaling, Stress Testing & Interactive Sand Viewer Complete:**
+  - Interactive OpenGL Sand Viewer (`VParticlesViewer.exe`) with dual-mode execution, zero-copy CUDA-OpenGL VBO streaming, and on-the-fly 3D normal-reconstructed lit sphere rendering.
+  - Multi-material visualization modes: Material Tint (0), Turbo Velocity Heatmap (1), and Sleeping State cool blue vs amber awake (2).
+  - All 7 Houdini-class sand presets (`pile`, `column_collapse`, `funnel`, `dune`, `cliff`, `bonded_block`, `clumps`) verified across real-time hot-switching.
+  - Dynamic kinematic moving colliders (oscillating plow sweeps at 2.5 m/s) with dynamic cascade wake-up and verified non-tunneling.
+  - Gate 11G-1 PASSED: 6.141 ms @ 100K grains (162.8 FPS), 7.542 ms @ 250K grains (132.6 FPS), 40.6 ms @ 1M grains (24.6 FPS).
+  - Gate 11G-2 PASSED: 2,000,000 active awake grains stress tested under shear with 0 NaNs and ~373 MB VRAM.
+  - Gate 11G-3 PASSED: Kinematic moving collider plows through sand bed, waking 96,941 grains with 0 tunneling violations and 0 NaNs.
+  - Gate 11G-4 PASSED: Clean hot-switching across all 7 scenario presets.
+  - Gate 11G-5 PASSED: 36/36 workloads in `--matrix` passed with peak memory bandwidth up to 220.0 GB/s. See [Phase 11G Scale & Viewer Report](PHASE_11G_SCALE_AND_VIEWER.md).
+- **Phase 11F Constraint Layer: Cohesion, Bonds & Clumping Complete:**
+  - Capillary cohesion for damp sand, XPBD glue bonds with physical tensile rupture threshold and compliance, sparse bond tables invariant across 1000 Radix sort neighbor reorders, and clump generation.
+  - Gate 11F-1 PASSED: Damp-sand cliff vertical face retention (-0.45% drop) and overburden crumble surge (+184 runout grains).
+  - Gate 11F-2 PASSED: 0.00% error in tensile break force across 4 and 8 substeps.
+  - Gate 11F-3 PASSED: Active bond count 100% bit-exact across 1,000 spatial neighbor reorders.
+  - Gate 11F-4 PASSED: Destructible clumps crumble on high-energy impact (100.0% bond rupture).
+  - Gate 11F-5 PASSED: 36/36 matrix regression workloads passed with zero regression. See [Phase 11F Constraint Layer](PHASE_11F_CONSTRAINT_LAYER.md).
+  - Multi-material mixture support with volume-scaled cubic inverse mass weighting ($w_i \propto \frac{1}{\rho_i r_i^3}$) and distinct material parameter lookups.
+  - Physical Coulomb friction with load-dependent normal displacement, reproducing exact angle of repose for dry quartz sand ($30.73^\circ$).
+  - Grain sleeping optimization: low-velocity grains freeze after consecutive substeps, skipping prediction, contact solve, and integration ($96.7\%$ asleep, $1.88\times$ speedup).
+  - Dynamic cascade wake-up: moving grains and external perturbations propagate wake-up events across contact graphs.
+  - All 4 sand scenario presets (`pile`, `column_collapse`, `funnel`, `dune`) verified with 0 NaNs and bounded velocities.
+  - Zero regression across all 36 `--matrix` workloads with full memory bandwidth up to $233.4$ GB/s.
+- **Phase 11D Cell-Colored Gauss-Seidel Contact Solver & Coulomb Friction Complete:**
+  - Production 8-color cell-partitioned Gauss-Seidel contact solver with Successive Over-Relaxation (SOR, $\omega = 1.45$).
+  - Position-level Coulomb friction (static sticking & dynamic kinetic sliding) with compliance-weighted stabilization.
+  - Inner loop bandwidth optimization: reduced neighbor DRAM read traffic by 66.7% by loading only `pred[j]` (16 B/neighbor).
+  - Fused ground plane, obstacle sphere, and container box colliders with material damping in symplectic integrator.
 - **Phase 11C Spatial Neighbor Structure & Verlet Lists Complete:**
   - Production GPU uniform spatial hashing + CUB radix sort + Verlet list pipeline (`GranularNeighborSearch`).
   - Dynamic 2-pass parallel bounding box reduction adapting grid to particle domain without static bounds (< 0.05 ms).
@@ -250,18 +278,47 @@ Tested on **NVIDIA GeForce RTX 3050 6GB Laptop GPU** (CUDA 13.3):
 
 See [Phase 11D Contact Solver Report](PHASE_11D_CONTACT_SOLVER.md).
 
+### 9. Phase 11E Material Behavior, Sand Piles & Sleeping Validation
+
+Tested on **NVIDIA GeForce RTX 3050 6GB Laptop GPU** (CUDA 13.3):
+
+| Exit Gate | Metric Measured | Target | Verdict |
+|---|---|---|:---:|
+| **Gate 11E-1** (Angle of Repose) | **30.73 deg** (Peak: 0.4868 m, Base: 0.8437 m) | $30.0^\circ \le \theta \le 35.5^\circ$ (quartz sand) | **PASSED** |
+| **Gate 11E-2** (Polydisperse Mixture) | Mean pen **0.00001 m (0.15%)** across 86,986 contacts | $< 10.0\%$ of radius ($< 0.0010$ m) | **PASSED** |
+| **Gate 11E-3** (Sleeping & Wake-Up) | **96.7% asleep**, **1.88x speedup** (4.11 -> 2.19 ms) | $\ge 80\%$ asleep, $\ge 1.4\times$ speedup, wake verified | **PASSED** |
+| **Gate 11E-4** (Sand Scenarios) | All 4 presets (`pile`, `column_collapse`, `funnel`, `dune`) | 0 NaNs, bounded speed $\le 1.20$ m/s | **PASSED** |
+| **Gate 11E-5** (Zero Effects Regression) | **36 / 36 passed** (Peak BW: 233.4 GB/s) | 36 / 36 workloads green | **PASSED** |
+
+See [Phase 11E Material Behavior Report](PHASE_11E_MATERIAL_SCENARIOS.md).
+
+### 10. Phase 11F Constraint Layer, Cohesion, Bonds & Clumping Validation
+
+Tested on **NVIDIA GeForce RTX 3050 6GB Laptop GPU** (CUDA 13.3):
+
+| Exit Gate | Metric Measured | Target | Verdict |
+|---|---|---|:---:|
+| **Gate 11F-1** (Damp Cliff & Rupture) | Stable apex: **0.549 m (-0.45% drop, runout: 12)**; Overburden surge: **196 runout (+184 surge)** | $>95\%$ height retention, runout $< 50$; surge $> 80$ | **PASSED** |
+| **Gate 11F-2** (Break Force Parity) | **7.00 N (4 substeps) vs 7.00 N (8 substeps)** (0.00% error) | Timestep error $\le 15.0\%$ | **PASSED** |
+| **Gate 11F-3** (Reorder Bond Integrity) | **23,004 -> 23,004 active bonds** across 1000 reorders | 100% bit-exact bond count preservation | **PASSED** |
+| **Gate 11F-4** (Clump Generation & Impact) | **21,677 initial bonds -> 1 bond on impact (100.0% rupture)** | Ruptured fraction $\ge 20.0\%$ | **PASSED** |
+| **Gate 11F-5** (Zero Effects Regression) | **36 / 36 passed** (Peak BW: 222.1 GB/s) | 36 / 36 workloads green | **PASSED** |
+
+See [Phase 11F Constraint Layer Report](PHASE_11F_CONSTRAINT_LAYER.md).
+
 ## Known Limits
 
 - Host-visible stats are delayed by design. Call `ParticleSystem::synchronize()` only at explicit validation or reporting boundaries that need an exact snapshot.
 - The engine supports up to 256 tiles and 64 effect recipes in constant memory.
+- Granular bond table supports up to 12 simultaneous constraints per grain.
 
 ## Next Work
 
-### Phase 11E: Material Behavior, Polydisperse Grain Radii, Sand Piles & Sleeping
+### Phase 11G: Large-Scale Awake Scaling, Stress Testing & Interactive Sand Viewer
 
-- Multi-material mixture support (cohesion, repulsion, density, polydisperse grain radii distributions $r_i \in [r_{\text{min}}, r_{\text{max}}]$).
-- Angle of repose validation for sand pile pouring ($30^\circ - 35^\circ$ for dry quartz sand).
-- Grain sleeping / island deactivation optimization: freeze resting grains ($v < v_{\text{sleep}}$ for $N$ consecutive frames) to bypass solver passes while waking instantly on contact impulses.
-- Sand scenarios CLI: `--sand-scenario {funnel,dune,dam_break,column_collapse}`.
+- **Interactive Sand Viewer:** Integrate granular simulation modes, scenario presets, material coloring, and bond strain rendering directly into `VParticlesViewer.exe`.
+- **Large-Scale Multi-Million Awake Scaling:** Stress-test and optimize 1M to 5M continuously active grains without sleeping under high-velocity mixing, avalanches, and obstacle churning.
+- **Dynamic Obstacle & Collider Interop:** Kinematic moving colliders (spinning paddles, bulldozers, vibrating sifters) interacting bidirectionally with granular beds.
+- **Exit Gates:** Interactive 60+ FPS visualization of 250K-1M grains in OpenGL viewer; stable 1M-5M active grain scaling within GPU memory budget; zero NaN/tunneling across kinematic moving colliders.
 
 

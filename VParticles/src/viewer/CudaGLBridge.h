@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VParticles/ParticlePool.h"
+#include "VParticles/GranularTypes.h"
 #include <cstdint>
 
 namespace vparticles::viewer {
@@ -36,6 +37,14 @@ public:
 
     // Maps OpenGL buffers, runs gather kernel to flatten live particles and update indirect command, and unmaps
     bool gather(const GpuParticlePool& pool, cudaStream_t stream = nullptr);
+
+    // Phase 11G: Gather granular grains into OpenGL VBO with material tint, velocity heatmap, or sleeping state
+    bool gatherGranular(
+        const GranularPool& pool,
+        int colorMode = 0,
+        float maxSpeed = 3.0f,
+        float basePointSize = 1.0f,
+        cudaStream_t stream = nullptr);
 
     uint32_t capacity() const { return capacity_; }
 

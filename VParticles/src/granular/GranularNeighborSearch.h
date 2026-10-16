@@ -28,6 +28,7 @@ public:
     const NeighborData& neighborData() const;
     const NeighborStats& stats() const;
     const GridParams& gridParams() const;
+    const uint32_t* sortedIndices() const;
 
 private:
     struct Impl;

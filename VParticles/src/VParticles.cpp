@@ -250,6 +250,13 @@ struct BenchmarkConfig {
     bool analyticCheck = false;
     bool neighborCheck = false;
     bool solverCheck = false;
+    bool materialCheck = false;
+    bool constraintCheck = false;
+    bool scaleCheck = false;
+    float cohesion = 0.0f;
+    float bondCompliance = 0.0f;
+    float bondBreakForce = 0.0f;
+    float clumpRadius = 0.05f;
     std::string solverType = "gs";
     float friction = 0.45f;
     float skinRatio = 0.20f;
@@ -735,6 +742,13 @@ SandBenchmarkResult runSandBenchmark(const BenchmarkConfig& config, const std::s
     gSettings.materials[0].staticFriction = config.friction;
     gSettings.materials[0].dynamicFriction = config.friction * 0.9f;
 
+    if (config.cohesion > 0.0f) {
+        gSettings.materials[0].cohesion = config.cohesion;
+    }
+    if (config.sandScenario == "cliff" && config.cohesion == 0.0f) {
+        gSettings.materials[0].cohesion = 60.0f; // Default damp sand cliff cohesion
+    }
+
     gSettings.skinRatio = config.skinRatio;
     system.setGranularSettings(gSettings);
 
@@ -745,7 +759,7 @@ SandBenchmarkResult runSandBenchmark(const BenchmarkConfig& config, const std::s
     }
 
     std::cout << "\n======================================================\n";
-    std::cout << "  VParticles Granular Simulation Benchmark (Phase 11D)\n";
+    std::cout << "  VParticles Granular Simulation Benchmark (Phase 11F)\n";
     std::cout << "======================================================\n";
     std::cout << "scenario=" << config.sandScenario
               << " capacity=" << config.capacity
@@ -756,17 +770,72 @@ SandBenchmarkResult runSandBenchmark(const BenchmarkConfig& config, const std::s
               << " iterations=" << gSettings.iterations
               << " grainRadius=" << std::setprecision(4) << config.grainRadius
               << " jitter=" << std::setprecision(2) << config.radiusJitter
+              << " cohesion=" << std::setprecision(1) << gSettings.materials[0].cohesion
               << " quality=" << config.sandQuality
               << " submission=" << (config.useGraph ? "[graph]" : "[eager]")
               << "\n\n";
 
     const float spacing = config.grainRadius * 2.0f;
-    system.spawnGranularLattice(
-        {0.0f, config.dropHeight, 0.0f},
-        config.capacity,
-        spacing,
-        config.radiusJitter,
-        {0.0f, 0.0f, 0.0f});
+    if (config.sandScenario == "pile") {
+        system.spawnGranularPouringPile(
+            {0.0f, 0.05f, 0.0f},
+            config.capacity,
+            0.08f,
+            config.dropHeight > 0.0f ? config.dropHeight : 0.6f,
+            config.radiusJitter);
+    } else if (config.sandScenario == "column_collapse" || config.sandScenario == "column") {
+        system.spawnGranularColumnCollapse(
+            {0.0f, 0.02f, 0.0f},
+            config.capacity,
+            spacing,
+            config.radiusJitter);
+    } else if (config.sandScenario == "funnel") {
+        system.spawnGranularFunnel(
+            {0.0f, config.dropHeight > 0.0f ? config.dropHeight : 0.5f, 0.0f},
+            config.capacity,
+            0.25f,
+            0.04f,
+            0.5f,
+            config.radiusJitter);
+    } else if (config.sandScenario == "dune") {
+        system.spawnGranularDune(
+            {0.0f, 0.05f, 0.0f},
+            config.capacity,
+            1.0f,
+            0.8f,
+            25.0f,
+            config.radiusJitter);
+    } else if (config.sandScenario == "cliff") {
+        system.spawnGranularCliff(
+            {0.0f, 0.0f, 0.0f},
+            config.capacity,
+            spacing,
+            config.radiusJitter);
+    } else if (config.sandScenario == "bonded_block" || config.sandScenario == "beam") {
+        system.spawnGranularBondedBlock(
+            {0.0f, 0.2f, 0.0f},
+            config.capacity,
+            spacing,
+            0.15f,
+            config.bondCompliance > 0.0f ? config.bondCompliance : 1e-5f,
+            config.bondBreakForce > 0.0f ? config.bondBreakForce : 50.0f);
+    } else if (config.sandScenario == "clumps") {
+        system.spawnGranularClumps(
+            {0.0f, config.dropHeight > 0.0f ? config.dropHeight : 0.6f, 0.0f},
+            config.capacity,
+            spacing,
+            config.clumpRadius,
+            config.bondCompliance > 0.0f ? config.bondCompliance : 1e-5f,
+            config.bondBreakForce > 0.0f ? config.bondBreakForce : 35.0f,
+            config.radiusJitter);
+    } else {
+        system.spawnGranularLattice(
+            {0.0f, config.dropHeight, 0.0f},
+            config.capacity,
+            spacing,
+            config.radiusJitter,
+            {0.0f, 0.0f, 0.0f});
+    }
     system.synchronize();
 
     const auto initialStats = system.granularStats();
@@ -876,6 +945,8 @@ SandBenchmarkResult runSandBenchmark(const BenchmarkConfig& config, const std::s
     std::cout << "\n--- Sand Benchmark Summary ---\n"
               << "Frames simulated:    " << config.frames << '\n'
               << "Final alive grains:  " << result.finalStats.aliveCount << '\n'
+              << "Asleep grains:       " << result.finalStats.asleepCount
+              << " (" << (result.finalStats.aliveCount > 0 ? (100.0f * result.finalStats.asleepCount / result.finalStats.aliveCount) : 0.0f) << "%)\n"
               << "Step time (p50):     " << std::fixed << std::setprecision(3) << result.stepPercentiles.p50 << " ms\n"
               << "Step time (p95):     " << result.stepPercentiles.p95 << " ms\n"
               << "Step time (p99):     " << result.stepPercentiles.p99 << " ms\n"
@@ -1097,6 +1168,20 @@ int main(int argc, char** argv)
                 config.analyticCheck = true;
             } else if (arg == "--neighbor-check") {
                 config.neighborCheck = true;
+            } else if (arg == "--material-check" || arg == "--sand-check") {
+                config.materialCheck = true;
+            } else if (arg == "--constraint-check" || arg == "--bond-check") {
+                config.constraintCheck = true;
+            } else if (arg == "--scale-check" || arg == "--sand-scale-check") {
+                config.scaleCheck = true;
+            } else if (arg == "--cohesion" && index + 1 < argc) {
+                config.cohesion = parseFloatArg(argv[++index], config.cohesion);
+            } else if ((arg == "--bond-compliance" || arg == "--compliance") && index + 1 < argc) {
+                config.bondCompliance = parseFloatArg(argv[++index], config.bondCompliance);
+            } else if ((arg == "--bond-break-force" || arg == "--break-force") && index + 1 < argc) {
+                config.bondBreakForce = parseFloatArg(argv[++index], config.bondBreakForce);
+            } else if (arg == "--clump-radius" && index + 1 < argc) {
+                config.clumpRadius = parseFloatArg(argv[++index], config.clumpRadius);
             } else if (arg == "--solver-check") {
                 config.solverCheck = true;
             } else if (arg == "--solver" && index + 1 < argc) {
@@ -1122,6 +1207,24 @@ int main(int argc, char** argv)
         if (config.solverCheck) {
             const vparticles::SolverValidationResult res =
                 vparticles::runSolverValidationSuite(config.capacity);
+            return res.passed ? 0 : 1;
+        }
+
+        if (config.materialCheck) {
+            const vparticles::MaterialValidationResult res =
+                vparticles::runMaterialValidationSuite(config.capacity);
+            return res.passed ? 0 : 1;
+        }
+
+        if (config.constraintCheck) {
+            const vparticles::ConstraintValidationResult res =
+                vparticles::runConstraintValidationSuite(config.capacity);
+            return res.passed ? 0 : 1;
+        }
+
+        if (config.scaleCheck) {
+            const vparticles::ScaleValidationResult res =
+                vparticles::runScaleValidationSuite(config.capacity);
             return res.passed ? 0 : 1;
         }
 

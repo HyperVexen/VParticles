@@ -26,9 +26,13 @@ struct ContactSolverParams {
     CollisionSphere obstacleSphere;
     CollisionBox containerBox;
     GrainMaterial material;
+    GrainMaterial materials[kMaxGrainMaterials];
+    uint32_t materialCount;
     float grainRadius;
     float substepDt;
     float invSubstepDt;
+    bool enableSleeping;
+    float sleepSpeedThreshold;
 };
 
 // -----------------------------------------------------------------------------
@@ -43,7 +47,8 @@ static __global__ void solveContactsColoredGSKernel(
     uint32_t colorEnd,
     const uint32_t* __restrict__ neighborList,
     const uint32_t* __restrict__ neighborCount,
-    const uint16_t* __restrict__ flags,
+    uint16_t* __restrict__ flags,
+    const uint16_t* __restrict__ materialId,
     ContactSolverParams params)
 {
     const uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -53,7 +58,7 @@ static __global__ void solveContactsColoredGSKernel(
     const uint32_t i = colorIndices ? colorIndices[colorStart + idx] : (colorStart + idx);
 
     // Skip asleep grains
-    if (flags && (flags[i] & 1)) return;
+    if (flags && (flags[i] & kGrainFlagAsleep)) return;
 
     const float4 pi4 = pred[i];
     float3 pi = makeFloat3(pi4);
@@ -65,11 +70,12 @@ static __global__ void solveContactsColoredGSKernel(
     const uint32_t baseOffset = i * kMaxNeighborsPerGrain;
 
     float3 totalDelta = make_float3(0.0f, 0.0f, 0.0f);
+    float3 totalFriction = make_float3(0.0f, 0.0f, 0.0f);
     uint32_t contacts = 0;
 
-    const GrainMaterial& mat = params.material;
+    const uint16_t matId = materialId ? materialId[i] : 0;
+    const GrainMaterial& mat = (matId < params.materialCount) ? params.materials[matId] : params.material;
     const float alphaTilde = (mat.cohesion > 0.0f ? 0.0f : (1.0f - mat.repulsion) * 1e-6f) * (params.invSubstepDt * params.invSubstepDt);
-    const float denom = 2.0f * invMassI + alphaTilde;
     const float3 oldPi = pos ? makeFloat3(pos[i]) : pi;
 
     if (neighborList && count > 0) {
@@ -85,30 +91,62 @@ static __global__ void solveContactsColoredGSKernel(
             const float3 diff = sub3(pi, pj);
             const float distSq = dot3(diff, diff);
             const float targetDist = ri + rj;
+            const float ruptureRatio = (mat.cohesionRuptureRatio > 0.0f) ? mat.cohesionRuptureRatio : 0.15f;
+            const float maxDist = (mat.cohesion > 0.0f) ? (targetDist * (1.0f + ruptureRatio)) : targetDist;
+            const float maxDistSq = maxDist * maxDist;
 
-            if (distSq < targetDist * targetDist && distSq > 1e-12f) {
+            if (distSq < maxDistSq && distSq > 1e-12f) {
+                // Wake up asleep neighbor on active contact only if grain i has dynamic velocity (impact/avalanche)
+                if (flags && (flags[j] & kGrainFlagAsleep) && params.enableSleeping) {
+                    const float4 vi4 = vel ? vel[i] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+                    const float velSqI = vi4.x * vi4.x + vi4.y * vi4.y + vi4.z * vi4.z;
+                    if (velSqI > (4.0f * params.sleepSpeedThreshold) * (4.0f * params.sleepSpeedThreshold)) {
+                        flags[j] = 0;
+                    }
+                }
+
                 const float dist = sqrtf(distSq);
-                const float penetration = targetDist - dist;
                 const float3 n = mul3(diff, 1.0f / dist);
 
+                const float invMassJ = (vel && vel[j].w > 0.0f) ? vel[j].w : 1.0f;
+                const float denom = invMassI + invMassJ + alphaTilde;
+
                 constexpr float kSOR = 1.45f;
-                const float deltaLambda = (kSOR * penetration) / denom;
-                float3 deltaX = mul3(n, deltaLambda * invMassI);
+                float deltaLambda = 0.0f;
+                float3 deltaX = make_float3(0.0f, 0.0f, 0.0f);
+
+                if (dist < targetDist) {
+                    const float penetration = targetDist - dist;
+                    deltaLambda = (kSOR * penetration) / denom;
+                    deltaX = mul3(n, deltaLambda * invMassI);
+                }
+
+                // Cohesion (compliant XPBD capillary attraction across meniscus gap)
+                if (mat.cohesion > 0.0f && dist >= targetDist) {
+                    const float maxCapGap = targetDist * ruptureRatio;
+                    const float gap = dist - targetDist;
+                    if (gap <= maxCapGap) {
+                        const float alphaCohesion = (50.0f / mat.cohesion) * (params.invSubstepDt * params.invSubstepDt);
+                        const float denomCohesion = invMassI + invMassJ + alphaCohesion;
+                        const float deltaLambdaCohesion = -gap / denomCohesion;
+                        deltaX = mul3(n, deltaLambdaCohesion * invMassI);
+                    }
+                }
 
                 // Position-level Coulomb friction (relative to start-of-substep displacement)
+                // In cohesive granular materials, capillary cohesion adds to the effective normal load (Mohr-Coulomb criterion)
                 if (mat.staticFriction > 0.0f || mat.dynamicFriction > 0.0f) {
                     const float3 dXi = sub3(pi, oldPi);
                     const float3 dXt = sub3(dXi, mul3(n, dot3(dXi, n)));
                     const float dXtMag = sqrtf(dot3(dXt, dXt));
 
                     if (dXtMag > 1e-8f) {
-                        const float maxFriction = mat.staticFriction * deltaLambda * invMassI;
-                        if (dXtMag <= maxFriction) {
-                            deltaX = sub3(deltaX, mul3(dXt, 0.5f));
-                        } else {
-                            const float dynamicLimit = mat.dynamicFriction * deltaLambda * invMassI;
-                            deltaX = sub3(deltaX, mul3(dXt, (dynamicLimit / dXtMag) * 0.5f));
-                        }
+                        const float cohesionNormalLoad = (mat.cohesion > 0.0f) ? (mat.cohesion * 0.0001f) : 0.0f;
+                        const float normalEff = fmaxf(deltaLambda * invMassI + cohesionNormalLoad, fabsf(dot3(dXi, n)));
+                        const float maxFricDisp = mat.staticFriction * normalEff;
+                        const float dynFricDisp = mat.dynamicFriction * normalEff;
+                        const float fricLimit = (dXtMag <= maxFricDisp) ? dXtMag : dynFricDisp;
+                        totalFriction = add3(totalFriction, mul3(dXt, fricLimit / dXtMag));
                     }
                 }
 
@@ -118,7 +156,16 @@ static __global__ void solveContactsColoredGSKernel(
         }
     }
 
+    // Multi-contact friction clamping: total friction opposing displacement can never exceed dXi
+    const float3 dXi = sub3(pi, oldPi);
+    const float dXiMag = sqrtf(dot3(dXi, dXi));
+    const float fMag = sqrtf(dot3(totalFriction, totalFriction));
+    if (fMag > dXiMag && fMag > 1e-8f) {
+        totalFriction = mul3(totalFriction, dXiMag / fMag);
+    }
+
     pi = add3(pi, totalDelta);
+    pi = sub3(pi, totalFriction);
 
     // Colliders inside the same solve iteration
 
@@ -132,18 +179,14 @@ static __global__ void solveContactsColoredGSKernel(
         if (planePen > 0.0f) {
             pi = add3(pi, mul3(nPlane, planePen));
 
-            // Tangential ground friction
+            // Tangential ground friction for grains touching the plane
             if (pos && params.groundPlane.friction > 0.0f) {
-                const float3 dXi = sub3(pi, makeFloat3(pos[i]));
-                const float3 dXt = sub3(dXi, mul3(nPlane, dot3(dXi, nPlane)));
-                const float dXtMag = sqrtf(dot3(dXt, dXt));
-                if (dXtMag > 1e-8f) {
-                    const float maxPlaneFric = params.groundPlane.friction * planePen;
-                    if (dXtMag <= maxPlaneFric) {
-                        pi = sub3(pi, dXt);
-                    } else {
-                        pi = sub3(pi, mul3(dXt, maxPlaneFric / dXtMag));
-                    }
+                const float3 dXPlane = sub3(pi, makeFloat3(pos[i]));
+                const float3 dXtPlane = sub3(dXPlane, mul3(nPlane, dot3(dXPlane, nPlane)));
+                const float dXtMagPlane = sqrtf(dot3(dXtPlane, dXtPlane));
+                if (dXtMagPlane > 1e-8f) {
+                    const float frictionFactor = fminf(1.0f, params.groundPlane.friction * 1.8f);
+                    pi = sub3(pi, mul3(dXtPlane, frictionFactor));
                 }
             }
         }
@@ -168,12 +211,14 @@ static __global__ void solveContactsColoredGSKernel(
             if (distSq > maxR * maxR && distSq > 1e-12f) {
                 const float dist = sqrtf(distSq);
                 pi = add3(cSph, mul3(diffSph, maxR / dist));
+                if (flags && (flags[i] & kGrainFlagAsleep)) flags[i] = 0;
             }
         } else {
             const float minR = params.obstacleSphere.radius + ri;
             if (distSq < minR * minR && distSq > 1e-12f) {
                 const float dist = sqrtf(distSq);
                 pi = add3(cSph, mul3(diffSph, minR / dist));
+                if (flags && (flags[i] & kGrainFlagAsleep)) flags[i] = 0;
             }
         }
     }
@@ -201,9 +246,15 @@ public:
         params.obstacleSphere = settings.obstacleSphere;
         params.containerBox = settings.containerBox;
         params.material = settings.materials[0];
+        params.materialCount = settings.materialCount;
+        for (uint32_t m = 0; m < settings.materialCount && m < kMaxGrainMaterials; ++m) {
+            params.materials[m] = settings.materials[m];
+        }
         params.grainRadius = settings.grainRadius;
         params.substepDt = substepDt;
         params.invSubstepDt = 1.0f / substepDt;
+        params.enableSleeping = settings.enableSleeping;
+        params.sleepSpeedThreshold = settings.sleepSpeedThreshold;
 
         // If color indices are not ready, execute single parallel pass
         if (neighbors.colorIndices == nullptr || neighbors.hostColorOffsets[8] == 0) {
@@ -211,7 +262,7 @@ public:
             solveContactsColoredGSKernel<<<blocks, kThreads, 0, stream>>>(
                 pool.pred, pool.pos, pool.vel,
                 nullptr, 0, pool.aliveCount,
-                neighbors.list, neighbors.counts, pool.flags,
+                neighbors.list, neighbors.counts, pool.flags, pool.materialId,
                 params);
             return;
         }
@@ -228,7 +279,7 @@ public:
             solveContactsColoredGSKernel<<<blocks, kThreads, 0, stream>>>(
                 pool.pred, pool.pos, pool.vel,
                 neighbors.colorIndices, colorStart, colorEnd,
-                neighbors.list, neighbors.counts, pool.flags,
+                neighbors.list, neighbors.counts, pool.flags, pool.materialId,
                 params);
         }
     }

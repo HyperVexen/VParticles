@@ -533,4 +533,9 @@ const GridParams& GranularNeighborSearch::gridParams() const
     return impl_->gridParams;
 }
 
+const uint32_t* GranularNeighborSearch::sortedIndices() const
+{
+    return impl_->d_indicesOut;
+}
+
 } // namespace vparticles

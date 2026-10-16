@@ -34,6 +34,14 @@ struct ViewerConfig {
     float pointScale = 2.5f;
     uint32_t maxFrames = 0;
     int samples = 0;
+
+    // Phase 11G: Granular Sand Viewer Options
+    bool sandMode = false;
+    std::string sandScenario = "pile";
+    float cohesion = 0.0f;
+    float bondBreakForce = 0.0f;
+    float clumpRadius = 0.04f;
+    float grainRadius = 0.01f;
 };
 
 struct AppState {
@@ -48,6 +56,12 @@ struct AppState {
     float pointScale = 2.5f;
     bool additiveBlend = true;
     bool resetRequested = false;
+
+    // Phase 11G: Granular Sand State
+    bool isSandMode = false;
+    int currentSandScenario = 0; // 0: pile, 1: column_collapse, 2: funnel, 3: dune, 4: cliff, 5: bonded_block, 6: clumps
+    int sandColorMode = 0;       // 0: Tint/Material, 1: Velocity Heatmap, 2: Sleep State
+    bool kinematicCollider = false;
 };
 
 AppState g_app;
@@ -100,7 +114,35 @@ void keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int 
         g_app.resetRequested = true;
         break;
     case GLFW_KEY_C:
-        g_app.camera.reset({0.0f, 5.0f, 0.0f}, 40.0f, 45.0f, 25.0f);
+        if (g_app.isSandMode) {
+            g_app.camera.reset({0.0f, 0.35f, 0.0f}, 25.0f, 30.0f, 2.5f);
+        } else {
+            g_app.camera.reset({0.0f, 5.0f, 0.0f}, 40.0f, 45.0f, 25.0f);
+        }
+        break;
+    case GLFW_KEY_M:
+        g_app.isSandMode = !g_app.isSandMode;
+        g_app.resetRequested = true;
+        if (g_app.isSandMode) {
+            g_app.camera.reset({0.0f, 0.35f, 0.0f}, 25.0f, 30.0f, 2.5f);
+            g_app.pointScale = 1.0f;
+            g_app.additiveBlend = false;
+        } else {
+            g_app.camera.reset({0.0f, 5.0f, 0.0f}, 40.0f, 45.0f, 25.0f);
+            g_app.pointScale = 2.5f;
+            g_app.additiveBlend = true;
+        }
+        break;
+    case GLFW_KEY_K:
+        if (g_app.isSandMode) {
+            g_app.kinematicCollider = !g_app.kinematicCollider;
+            g_app.resetRequested = true;
+        }
+        break;
+    case GLFW_KEY_V:
+        if (g_app.isSandMode) {
+            g_app.sandColorMode = (g_app.sandColorMode + 1) % 3;
+        }
         break;
     case GLFW_KEY_B:
         g_app.additiveBlend = !g_app.additiveBlend;
@@ -113,16 +155,43 @@ void keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int 
     case GLFW_KEY_KP_SUBTRACT:
         g_app.pointScale = std::max(g_app.pointScale * 0.8f, 0.2f);
         break;
-    case GLFW_KEY_1: g_app.currentPreset = 0; g_app.resetRequested = true; break;
-    case GLFW_KEY_2: g_app.currentPreset = 1; g_app.resetRequested = true; break;
-    case GLFW_KEY_3: g_app.currentPreset = 2; g_app.resetRequested = true; break;
-    case GLFW_KEY_4: g_app.currentPreset = 3; g_app.resetRequested = true; break;
-    case GLFW_KEY_5: g_app.currentPreset = 4; g_app.resetRequested = true; break;
-    case GLFW_KEY_6: g_app.currentPreset = 5; g_app.resetRequested = true; break;
-    case GLFW_KEY_7: g_app.currentPreset = 6; g_app.resetRequested = true; break;
-    case GLFW_KEY_8: g_app.currentPreset = 7; g_app.resetRequested = true; break;
+    case GLFW_KEY_1:
+        if (g_app.isSandMode) { g_app.currentSandScenario = 0; } else { g_app.currentPreset = 0; }
+        g_app.resetRequested = true;
+        break;
+    case GLFW_KEY_2:
+        if (g_app.isSandMode) { g_app.currentSandScenario = 1; } else { g_app.currentPreset = 1; }
+        g_app.resetRequested = true;
+        break;
+    case GLFW_KEY_3:
+        if (g_app.isSandMode) { g_app.currentSandScenario = 2; } else { g_app.currentPreset = 2; }
+        g_app.resetRequested = true;
+        break;
+    case GLFW_KEY_4:
+        if (g_app.isSandMode) { g_app.currentSandScenario = 3; } else { g_app.currentPreset = 3; }
+        g_app.resetRequested = true;
+        break;
+    case GLFW_KEY_5:
+        if (g_app.isSandMode) { g_app.currentSandScenario = 4; } else { g_app.currentPreset = 4; }
+        g_app.resetRequested = true;
+        break;
+    case GLFW_KEY_6:
+        if (g_app.isSandMode) { g_app.currentSandScenario = 5; } else { g_app.currentPreset = 5; }
+        g_app.resetRequested = true;
+        break;
+    case GLFW_KEY_7:
+        if (g_app.isSandMode) { g_app.currentSandScenario = 6; } else { g_app.currentPreset = 6; }
+        g_app.resetRequested = true;
+        break;
+    case GLFW_KEY_8:
+        if (!g_app.isSandMode) { g_app.currentPreset = 7; g_app.resetRequested = true; }
+        break;
     case GLFW_KEY_TAB:
-        g_app.currentPreset = (g_app.currentPreset + 1) % 8;
+        if (g_app.isSandMode) {
+            g_app.currentSandScenario = (g_app.currentSandScenario + 1) % 7;
+        } else {
+            g_app.currentPreset = (g_app.currentPreset + 1) % 8;
+        }
         g_app.resetRequested = true;
         break;
     default:
@@ -130,7 +199,103 @@ void keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int 
     }
 }
 
+const char* getSandScenarioName(int scenario) {
+    switch (scenario) {
+    case 0: return "Pouring Sand Pile (Angle of Repose)";
+    case 1: return "Column Collapse (Dam Break Avalanche)";
+    case 2: return "Conical Funnel (Hourglass Flow)";
+    case 3: return "Sand Dune (Slipface Avalanche)";
+    case 4: return "Damp Sand Cliff (Capillary Cohesion)";
+    case 5: return "Bonded Block (XPBD Cantilever Beam)";
+    case 6: return "Destructible Clumps (Impact Crumbling)";
+    default: return "Custom Sand";
+    }
+}
+
+void applySandScenario(ParticleSystem& system, int scenario, const ViewerConfig& config, bool enableKinematic) {
+    system.reset();
+    system.clearEmitters();
+    system.setSimulationMode(SimulationMode::Granular);
+
+    GranularSettings settings;
+    settings.grainRadius = config.grainRadius > 0.0f ? config.grainRadius : 0.01f;
+    settings.enableSleeping = true;
+    settings.sleepSpeedThreshold = 0.02f;
+    settings.substeps = 4;
+    settings.iterations = 4;
+    settings.groundPlane.enabled = 1;
+    settings.groundPlane.point = {0.0f, 0.0f, 0.0f};
+    settings.groundPlane.normal = {0.0f, 1.0f, 0.0f};
+    settings.groundPlane.friction = 0.58f;
+
+    if (enableKinematic) {
+        settings.kinematicColliderEnabled = 1;
+        settings.kinematicColliderType = (scenario % 2); // alternate linear plow / rotating churner
+        settings.kinematicOrigin = {0.0f, 0.15f, 0.0f};
+        settings.kinematicRadius = 0.10f;
+        settings.kinematicSpeed = 2.0f;
+        settings.kinematicAmplitude = 0.35f;
+    }
+
+    const uint32_t count = std::min(config.capacity, 250000u);
+
+    switch (scenario) {
+    case 0: { // Pouring Sand Pile
+        system.setGranularSettings(settings);
+        system.spawnGranularPouringPile({0.0f, 0.6f, 0.0f}, count, 0.08f, 0.6f, 0.15f);
+        break;
+    }
+    case 1: { // Column Collapse
+        system.setGranularSettings(settings);
+        system.spawnGranularColumnCollapse({0.0f, 0.0f, 0.0f}, count, 0.02f, 0.12f);
+        break;
+    }
+    case 2: { // Conical Funnel
+        settings.containerBox.enabled = 1;
+        settings.containerBox.minBounds = {-0.6f, 0.0f, -0.6f};
+        settings.containerBox.maxBounds = {0.6f, 1.2f, 0.6f};
+        system.setGranularSettings(settings);
+        system.spawnGranularFunnel({0.0f, 0.4f, 0.0f}, count, 0.25f, 0.04f, 0.5f, 0.10f);
+        break;
+    }
+    case 3: { // Sand Dune
+        system.setGranularSettings(settings);
+        system.spawnGranularDune({0.0f, 0.0f, 0.0f}, count, 1.0f, 0.8f, 25.0f, 0.10f);
+        break;
+    }
+    case 4: { // Damp Sand Cliff
+        settings.materials[0].cohesion = config.cohesion > 0.0f ? config.cohesion : 60.0f;
+        settings.materials[0].cohesionRuptureRatio = 0.15f;
+        system.setGranularSettings(settings);
+        system.spawnGranularCliff({0.0f, 0.0f, 0.0f}, count, 0.02f, 0.12f);
+        break;
+    }
+    case 5: { // Bonded Cantilever Block
+        const float compliance = 1e-5f;
+        const float breakForce = config.bondBreakForce > 0.0f ? config.bondBreakForce : 40.0f;
+        system.setGranularSettings(settings);
+        system.spawnGranularBondedBlock({-0.3f, 0.25f, 0.0f}, std::min(count, 4096u), 0.02f, 0.15f, compliance, breakForce);
+        break;
+    }
+    case 6: { // Destructible Clumps
+        const float clumpR = config.clumpRadius > 0.0f ? config.clumpRadius : 0.04f;
+        const float breakForce = config.bondBreakForce > 0.0f ? config.bondBreakForce : 25.0f;
+        system.setGranularSettings(settings);
+        system.spawnGranularClumps({0.0f, 0.6f, 0.0f}, std::min(count, 50000u), 0.02f, clumpR, 1e-5f, breakForce, 0.10f);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 void applyPreset(ParticleSystem& system, int preset, const ViewerConfig& config) {
+    if (g_app.isSandMode) {
+        applySandScenario(system, g_app.currentSandScenario, config, g_app.kinematicCollider);
+        return;
+    }
+
+    system.setSimulationMode(SimulationMode::Effects);
     system.reset();
     system.clearEmitters();
 
@@ -572,35 +737,39 @@ const char* getPresetName(int preset) {
 void printHelp() {
     std::cout << "VParticles Interactive OpenGL Viewer\n"
               << "Usage: VParticlesViewer [options]\n\n"
-              << "Options:\n"
+              << "General Options:\n"
               << "  --capacity <N>      Pool particle capacity (default: 1000000)\n"
-              << "  --rate <N>          Total spawn rate / sec (default: 250000)\n"
+              << "  --rate <N>          Total spawn rate / sec for effects (default: 250000)\n"
               << "  --width <W>         Window width (default: 1600)\n"
               << "  --height <H>        Window height (default: 900)\n"
               << "  --no-vsync          Disable vsync for uncapped framerate\n"
-              << "  --blend <add|alpha> Initial blend mode (default: add)\n"
+              << "  --blend <add|alpha> Initial blend mode for effects (default: add)\n"
               << "  --scale <S>         Point size multiplier (default: 2.5)\n"
               << "  --samples <N>       MSAA samples (default: 0, procedural AA in shader)\n"
               << "  --frames <N>        Exit automatically after N frames and report stats\n"
               << "  --help              Display this help message\n\n"
+              << "Granular Sand Options (Phase 11G):\n"
+              << "  --sand              Start directly in Granular Sand simulation mode\n"
+              << "  --sand-scenario <S> Sand scenario: pile, column_collapse, funnel, dune, cliff, bonded_block, clumps\n"
+              << "  --cohesion <C>      Damp sand capillary cohesion strength\n"
+              << "  --bond-break-force <F> Glue bond tensile break force (N)\n"
+              << "  --clump-radius <R>  Clump cluster radius (m)\n"
+              << "  --grain-radius <R>  Base grain radius (m, default: 0.01)\n\n"
               << "Controls:\n"
               << "  Left Drag           Orbit camera\n"
               << "  Right Drag          Pan camera\n"
               << "  Scroll Wheel        Zoom\n"
               << "  C                   Reset camera view\n"
               << "  Space               Pause / resume simulation\n"
-              << "  R                   Reset simulation\n"
-              << "  B                   Toggle blend mode (Additive / Alpha)\n"
+              << "  R                   Reset simulation / scenario\n"
+              << "  M                   Toggle Mode (Effects Particles <-> Granular Sand)\n"
+              << "  K                   Toggle Kinematic Moving Collider (Plow / Churner in Sand)\n"
+              << "  V                   Cycle Sand Color Mode (Tint <-> Velocity Heatmap <-> Sleeping)\n"
+              << "  B                   Toggle blend mode (Additive / Alpha) in Effects mode\n"
               << "  + / -               Increase / decrease particle point size\n"
-              << "  1                   Preset: Showroom (all 8 effects around museum ring)\n"
-              << "  2                   Preset: Smoke Plume (buoyancy, curl turbulence, expanding ash)\n"
-              << "  3                   Preset: Sparks & Ricochet (high-speed downward shower, floor bounce)\n"
-              << "  4                   Preset: Bonfire & Deflector Sphere (obstacle collision, flame wrap)\n"
-              << "  5                   Preset: Grand Water Fountain (geyser, arching jets, basin)\n"
-              << "  6                   Preset: Plasma Vortex (zero-G magnetic containment sphere)\n"
-              << "  7                   Preset: Shrapnel & Shockwave (crushing gravity, floor ricochet)\n"
-              << "  8                   Preset: Magic Shimmer Galaxy (stardust spiral, ethereal float)\n"
-              << "  Tab                 Cycle through presets\n"
+              << "  1 - 8 (Effects)     Showroom, Smoke, Sparks, Bonfire, Fountain, Plasma, Shrapnel, Magic\n"
+              << "  1 - 7 (Sand)        Pile, Column Collapse, Funnel, Dune, Cliff, Bonded Block, Clumps\n"
+              << "  Tab                 Cycle through presets / scenarios\n"
               << "  Escape              Quit\n";
 }
 
@@ -637,12 +806,39 @@ int main(int argc, char** argv) {
             config.samples = std::stoi(argv[++i]);
         } else if (arg == "--frames" && i + 1 < argc) {
             config.maxFrames = static_cast<uint32_t>(std::stoul(argv[++i]));
+        } else if (arg == "--sand") {
+            config.sandMode = true;
+        } else if (arg == "--sand-scenario" && i + 1 < argc) {
+            config.sandScenario = argv[++i];
+        } else if (arg == "--cohesion" && i + 1 < argc) {
+            config.cohesion = std::stof(argv[++i]);
+        } else if (arg == "--bond-break-force" && i + 1 < argc) {
+            config.bondBreakForce = std::stof(argv[++i]);
+        } else if (arg == "--clump-radius" && i + 1 < argc) {
+            config.clumpRadius = std::stof(argv[++i]);
+        } else if (arg == "--grain-radius" && i + 1 < argc) {
+            config.grainRadius = std::stof(argv[++i]);
         }
     }
 
     g_app.config = config;
-    g_app.pointScale = config.pointScale;
-    g_app.additiveBlend = config.additiveBlend;
+    g_app.isSandMode = config.sandMode;
+    if (config.sandScenario == "pile") g_app.currentSandScenario = 0;
+    else if (config.sandScenario == "column_collapse" || config.sandScenario == "column") g_app.currentSandScenario = 1;
+    else if (config.sandScenario == "funnel") g_app.currentSandScenario = 2;
+    else if (config.sandScenario == "dune") g_app.currentSandScenario = 3;
+    else if (config.sandScenario == "cliff") g_app.currentSandScenario = 4;
+    else if (config.sandScenario == "bonded_block" || config.sandScenario == "block") g_app.currentSandScenario = 5;
+    else if (config.sandScenario == "clumps" || config.sandScenario == "clump") g_app.currentSandScenario = 6;
+
+    if (g_app.isSandMode) {
+        g_app.pointScale = 1.0f;
+        g_app.additiveBlend = false;
+        g_app.camera.reset({0.0f, 0.35f, 0.0f}, 25.0f, 30.0f, 2.5f);
+    } else {
+        g_app.pointScale = config.pointScale;
+        g_app.additiveBlend = config.additiveBlend;
+    }
 
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -740,7 +936,9 @@ int main(int argc, char** argv) {
     applyPreset(system, g_app.currentPreset, config);
 
     std::cout << "Particle system initialized with capacity " << config.capacity
-              << " (" << (vboBytes / (1024 * 1024)) << " MB VBO)" << std::endl;
+              << " (" << (vboBytes / (1024 * 1024)) << " MB VBO)"
+              << " [Mode: " << (g_app.isSandMode ? "Granular Sand" : "Effects Particles") << "]"
+              << std::endl;
 
     auto lastTime = std::chrono::high_resolution_clock::now();
     auto lastTitleUpdate = lastTime;
@@ -771,8 +969,12 @@ int main(int argc, char** argv) {
             lastSimTimeMs = std::chrono::duration<double, std::milli>(simEnd - simStart).count();
         }
 
-        // Gather live particles from CUDA pool into registered OpenGL VBO
-        bridge.gather(system.gpuBuffers());
+        // Gather live particles/grains into registered OpenGL VBO
+        if (g_app.isSandMode) {
+            bridge.gatherGranular(system.granularBuffers(), g_app.sandColorMode, 3.0f, g_app.pointScale);
+        } else {
+            bridge.gather(system.gpuBuffers());
+        }
 
         // Render pass
         int displayW = 0, displayH = 0;
@@ -780,13 +982,20 @@ int main(int argc, char** argv) {
         glViewport(0, 0, displayW, displayH);
 
         glClearColor(0.02f, 0.02f, 0.04f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | (g_app.isSandMode ? GL_DEPTH_BUFFER_BIT : 0));
 
-        glEnable(GL_BLEND);
-        if (g_app.additiveBlend) {
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        if (g_app.isSandMode) {
+            glEnable(GL_DEPTH_TEST);
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
         } else {
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDisable(GL_DEPTH_TEST);
+            glEnable(GL_BLEND);
+            if (g_app.additiveBlend) {
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            } else {
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            }
         }
 
         float aspect = (displayH > 0) ? (static_cast<float>(displayW) / static_cast<float>(displayH)) : 1.0f;
@@ -798,6 +1007,7 @@ int main(int argc, char** argv) {
         shader.setEyePos(eye.x, eye.y, eye.z);
         shader.setViewportHeight(static_cast<float>(displayH));
         shader.setPointScale(g_app.pointScale);
+        shader.setIsGranular(g_app.isSandMode);
 
         glBindVertexArray(vao);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
@@ -813,7 +1023,7 @@ int main(int argc, char** argv) {
             std::cout << "\n--- Viewer Benchmark Complete (" << totalRenderedFrames << " frames) ---\n"
                       << "Average FPS:        " << std::fixed << std::setprecision(1)
                       << (totalRenderedFrames / (totalElapsed > 0.0 ? totalElapsed : 1.0)) << "\n"
-                      << "Live Particles:     " << system.stats().aliveCount << "\n"
+                      << "Live Particles:     " << (g_app.isSandMode ? system.granularStats().aliveCount : system.stats().aliveCount) << "\n"
                       << "Last Sim Time:      " << std::setprecision(3) << lastSimTimeMs << " ms\n"
                       << "Capacity:           " << config.capacity << "\n";
             break;
@@ -830,17 +1040,27 @@ int main(int argc, char** argv) {
             accumulatedFps = 0.0;
             lastTitleUpdate = currentTime;
 
-            uint32_t aliveCount = system.stats().aliveCount;
-
             std::ostringstream ss;
-            ss << "VParticles Viewer | "
-               << aliveCount << " Particles | "
-               << std::fixed << std::setprecision(1) << avgFps << " FPS | "
-               << "Sim: " << std::setprecision(2) << lastSimTimeMs << " ms | "
-               << getPresetName(g_app.currentPreset)
-               << (g_app.isPaused ? " [PAUSED]" : "")
-               << (g_app.additiveBlend ? " [Add]" : " [Alpha]")
-               << " | Scale: " << std::setprecision(1) << g_app.pointScale << "x";
+            ss << "VParticles Viewer | ";
+            if (g_app.isSandMode) {
+                const auto& gStats = system.granularStats();
+                ss << gStats.aliveCount << " Grains | "
+                   << std::fixed << std::setprecision(1) << avgFps << " FPS | "
+                   << "Sim: " << std::setprecision(2) << lastSimTimeMs << " ms | "
+                   << "Sand: [" << getSandScenarioName(g_app.currentSandScenario) << "]"
+                   << " [Color: " << (g_app.sandColorMode == 0 ? "Tint" : (g_app.sandColorMode == 1 ? "Heatmap" : "Sleeping")) << "]"
+                   << (g_app.kinematicCollider ? " [Plow: ON]" : "")
+                   << (g_app.isPaused ? " [PAUSED]" : "");
+            } else {
+                uint32_t aliveCount = system.stats().aliveCount;
+                ss << aliveCount << " Particles | "
+                   << std::fixed << std::setprecision(1) << avgFps << " FPS | "
+                   << "Sim: " << std::setprecision(2) << lastSimTimeMs << " ms | "
+                   << getPresetName(g_app.currentPreset)
+                   << (g_app.isPaused ? " [PAUSED]" : "")
+                   << (g_app.additiveBlend ? " [Add]" : " [Alpha]")
+                   << " | Scale: " << std::setprecision(1) << g_app.pointScale << "x";
+            }
 
             glfwSetWindowTitle(window, ss.str().c_str());
         }

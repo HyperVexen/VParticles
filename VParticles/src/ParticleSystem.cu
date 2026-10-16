@@ -536,4 +536,84 @@ void ParticleSystem::spawnGranularLattice(
     impl_->getOrCreateGranular().spawnLattice(origin, count, spacing, jitterRatio, initialVel, seed);
 }
 
+void ParticleSystem::spawnGranularColumnCollapse(
+    const Float3& origin,
+    uint32_t count,
+    float spacing,
+    float jitterRatio,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnColumnCollapse(origin, count, spacing, jitterRatio, seed);
+}
+
+void ParticleSystem::spawnGranularPouringPile(
+    const Float3& origin,
+    uint32_t count,
+    float nozzleRadius,
+    float height,
+    float jitterRatio,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnPouringPile(origin, count, nozzleRadius, height, jitterRatio, seed);
+}
+
+void ParticleSystem::spawnGranularFunnel(
+    const Float3& origin,
+    uint32_t count,
+    float topRadius,
+    float orificeRadius,
+    float height,
+    float jitterRatio,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnFunnel(origin, count, topRadius, orificeRadius, height, jitterRatio, seed);
+}
+
+void ParticleSystem::spawnGranularDune(
+    const Float3& origin,
+    uint32_t count,
+    float lengthX,
+    float widthZ,
+    float slopeAngleDeg,
+    float jitterRatio,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnDune(origin, count, lengthX, widthZ, slopeAngleDeg, jitterRatio, seed);
+}
+
+void ParticleSystem::spawnGranularCliff(
+    const Float3& origin,
+    uint32_t count,
+    float spacing,
+    float jitterRatio,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnCliff(origin, count, spacing, jitterRatio, seed);
+}
+
+void ParticleSystem::spawnGranularBondedBlock(
+    const Float3& origin,
+    uint32_t count,
+    float spacing,
+    float anchorRatio,
+    float compliance,
+    float breakForce,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnBondedBlock(origin, count, spacing, anchorRatio, compliance, breakForce, seed);
+}
+
+void ParticleSystem::spawnGranularClumps(
+    const Float3& origin,
+    uint32_t count,
+    float spacing,
+    float clumpRadius,
+    float compliance,
+    float breakForce,
+    float jitterRatio,
+    uint32_t seed)
+{
+    impl_->getOrCreateGranular().spawnClumps(origin, count, spacing, clumpRadius, compliance, breakForce, jitterRatio, seed);
+}
+
 } // namespace vparticles

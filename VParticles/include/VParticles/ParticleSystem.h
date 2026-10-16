@@ -60,6 +60,65 @@ public:
         const Float3& initialVel = {0.0f, 0.0f, 0.0f},
         uint32_t seed = 11011);
 
+    void spawnGranularColumnCollapse(
+        const Float3& origin,
+        uint32_t count,
+        float spacing,
+        float jitterRatio = 0.0f,
+        uint32_t seed = 22022);
+
+    void spawnGranularPouringPile(
+        const Float3& origin,
+        uint32_t count,
+        float nozzleRadius = 0.08f,
+        float height = 0.6f,
+        float jitterRatio = 0.0f,
+        uint32_t seed = 33033);
+
+    void spawnGranularFunnel(
+        const Float3& origin,
+        uint32_t count,
+        float topRadius = 0.25f,
+        float orificeRadius = 0.04f,
+        float height = 0.5f,
+        float jitterRatio = 0.0f,
+        uint32_t seed = 44044);
+
+    void spawnGranularDune(
+        const Float3& origin,
+        uint32_t count,
+        float lengthX = 1.0f,
+        float widthZ = 0.8f,
+        float slopeAngleDeg = 25.0f,
+        float jitterRatio = 0.0f,
+        uint32_t seed = 55055);
+
+    void spawnGranularCliff(
+        const Float3& origin,
+        uint32_t count,
+        float spacing = 0.02f,
+        float jitterRatio = 0.0f,
+        uint32_t seed = 66066);
+
+    void spawnGranularBondedBlock(
+        const Float3& origin,
+        uint32_t count,
+        float spacing = 0.02f,
+        float anchorRatio = 0.15f,
+        float compliance = 1e-5f,
+        float breakForce = 50.0f,
+        uint32_t seed = 77077);
+
+    void spawnGranularClumps(
+        const Float3& origin,
+        uint32_t count,
+        float spacing = 0.02f,
+        float clumpRadius = 0.05f,
+        float compliance = 1e-5f,
+        float breakForce = 50.0f,
+        float jitterRatio = 0.0f,
+        uint32_t seed = 88088);
+
     const ParticlePool& buffers() const;
     const GpuParticlePool& gpuBuffers() const;
     const SimulationStats& stats() const;

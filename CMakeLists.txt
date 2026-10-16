@@ -36,6 +36,10 @@ add_library(VParticlesCore STATIC
     "VParticles/src/granular/GranularNeighborSearch.cu"
     "VParticles/src/granular/GranularNeighborValidation.cu"
     "VParticles/src/granular/GranularSolverValidation.cu"
+    "VParticles/src/granular/GranularMaterialValidation.cu"
+    "VParticles/src/granular/GranularBondManager.cu"
+    "VParticles/src/granular/GranularConstraintValidation.cu"
+    "VParticles/src/granular/GranularScaleValidation.cu"
 )
 
 target_include_directories(VParticlesCore PUBLIC

@@ -15,6 +15,13 @@ if not defined VS_ROOT goto find_cmake
 
 if exist "%VS_ROOT%\Common7\Tools\VsDevCmd.bat" call "%VS_ROOT%\Common7\Tools\VsDevCmd.bat" -arch=x64
 
+where git >nul 2>nul
+if errorlevel 1 (
+    if exist "%VS_ROOT%\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd" (
+        set "PATH=%VS_ROOT%\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd;%PATH%"
+    )
+)
+
 :find_cmake
 where cmake >nul 2>nul
 if not errorlevel 1 set "CMAKE_EXE=cmake"
