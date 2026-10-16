@@ -296,13 +296,143 @@ Next refinement:
 
 # Saga 2 Part 1: Granular Physics Engine - Fully Complete!
 **Milestones Achieved:**
-- Phase 11A: Granular Foundations & Spikes
-- Phase 11B: Granular Pool, Fixed-Step Runtime, and Solver Interface
-- Phase 11C: Spatial Neighbor Structure & Verlet Lists
-- Phase 11D: Cell-Colored Gauss-Seidel Contact Solver & Coulomb Friction
-- Phase 11E: Material Behavior, Polydisperse Mixtures, Sand Piles & Sleeping Optimization
-- Phase 11F: Constraint Layer: Cohesion, Bonds & Clumping
-- Phase 11G: Large-Scale Awake Scaling, Stress Testing & Interactive Sand Viewer
+- Milestone 11A: Granular Foundations & Empirical Spikes (Verlet lists & Jacobi/GS solvers)
+- Milestone 11B: Granular Pool, Fixed-Step Runtime, and Solver Interface
+- Milestone 11C: Spatial Neighbor Structure & Verlet Lists (Bit-exact hashing & reordering)
+- Milestone 11D: Cell-Colored Gauss-Seidel Contact Solver & Coulomb Friction
+- Milestone 11E: Material Behavior, Polydisperse Mixtures, Sand Piles & Sleeping Optimization
+- Milestone 11F: Constraint Layer: Cohesion, Bonds & Clumping (Capillary & XPBD lattice)
+- Milestone 11G: Large-Scale Awake Scaling, Stress Testing & Interactive Sand Viewer
+
+---
+
+# Saga 2 Part 2 Masterplan: Industrial Grain Simulation Core & Simulation Studio
+
+Saga 2 Part 2 elevates VParticles into a pure, industrial-grade granular simulation engine (emulating the high-performance standalone simulation philosophy of JangaFX). All volumetric fluids, smoke, and fire solvers are reserved for Saga 3.
+
+```mermaid
+flowchart TD
+    subgraph SAGA2_P2_1["Saga 2 Part 2 Phase 1: Simulation Studio UI & UX (branch: feature/ui-ux-engine)"]
+        UI1["1. Modern Docking Workspace (ImGui Docking)"]
+        UI2["2. Interactive 3D Viewport Gizmos (Translate/Rotate/Scale)"]
+        UI3["3. Scene Outliner & Hierarchy Panel"]
+        UI4["4. Comprehensive Inspector & Parameter Tuning"]
+        UI5["5. Timeline & Transport System (Play/Pause/Step/Scrub)"]
+        UI6["6. Real-Time Telemetry & Diagnostics HUD"]
+    end
+
+    subgraph SAGA2_P2_2["Saga 2 Part 2 Phase 2: Ingestion, Collision & Advanced Particle Physics"]
+        P2A["Phase 2A: Emitter Shapes & Influx Mechanics (Box, Sphere, Cylinder, Disc, Mesh)"]
+        P2B["Phase 2B: Scene Collider Ingestion & GPU Triangle Mesh Collision (OBJ/Mesh, LBVH)"]
+        P2C["Phase 2C: Alembic (.abc) & Particulate Cache Exporter"]
+        P2D["Phase 2D: Hertz-Mindlin Contact Theory & Tangential History (δ_t)"]
+        P2E["Phase 2E: Rolling Resistance & Contact Moments (EPSD)"]
+        P2F["Phase 2F: Rigid Clump Super-Grains (Multi-Sphere Compounds)"]
+        P2G["Phase 2G: Two-Way Coupled 6-DOF Rigid Body Dynamics"]
+        P2H["Phase 2H: Particle Breakage, Attrition & Comminution (Weibull Fracture)"]
+        P2I["Phase 2I: Industrial Scaling (10M-50M Grains) & ASTM Validation Suite"]
+    end
+
+    SAGA2_P2_1 --> SAGA2_P2_2
+```
+
+---
+
+## Saga 2 Part 2 Phase 1: Simulation Studio UI & UX Engine (Milestone 1)
+*Active branch: `feature/ui-ux-engine`*
+
+### 1. Modern Docking Workspace
+- Integration of Dear ImGui (Docking Branch) with high-DPI scaling and dark JangaFX/Unreal-inspired theme.
+- Multi-panel docking layout: Viewport, Outliner, Details/Inspector, Timeline, Node/Parameter Bar, and Telemetry/Stats.
+
+### 2. 3D Viewport Transformation Gizmos (ImGuizmo)
+- Translation, Rotation, and Scale gizmos in World and Local space.
+- Interactive gizmo binding to Colliders (Planes, Spheres, Boxes, imported Meshes) and Emitters.
+- Grid snapping, axis constraints, and numerical readout while dragging.
+
+### 3. Scene Outliner & Hierarchy Panel
+- Live tree view of all active simulation entities:
+  - Particle Systems (`GranularSystem`, `ParticleSystem`)
+  - Emitters (Active emitter list with enable/disable toggles)
+  - Collision Objects (Analytic shapes & imported mesh colliders)
+  - Materials & Presets (Quartz sand, wet sand, gravel, clumps, custom)
+  - Force Fields & Gravity controls
+
+### 4. Comprehensive Inspector & Parameter Tuning
+- Direct granular parameter control over EVERY factor affecting the simulation:
+  - **Global Physics**: Gravity vector $\vec{g}$, fixed timestep $\Delta t$, substeps ($1-32$), solver iterations ($1-16$), SOR over-relaxation factor $\omega$.
+  - **Material Properties**: Grain base radius $r$, radius jitter variance $\pm \delta r$, material density $\rho$, restitution coefficient $e$, static friction $\mu_s$, dynamic sliding friction $\mu_k$, damping coefficient.
+  - **Cohesion & Bonds**: Capillary meniscus strength, rupture distance threshold, XPBD bond compliance $\alpha$, tensile break force $F_{\text{break}}$, clump cluster radius.
+  - **Sleeping & Optimization**: Sleep speed threshold $v_{\text{sleep}}$, sleep frame counter threshold, wake-up propagation sensitivity, skin buffer ratio.
+  - **Kinematic Colliders**: Velocity, sweep frequency, oscillation amplitude, trajectory mode.
+
+### 5. Timeline & Transport Controls
+- Transport bar: Play, Pause, Step Forward (1 frame), Step Backward (1 frame), Reset to Frame 0, Loop toggle.
+- Scrubbable frame slider with start frame, end frame, current frame, and frame rate lock (24, 30, 60, 120 FPS or Unlocked).
+- Visual timeline indicators showing cached vs. simulated frame spans.
+
+### 6. Real-Time Telemetry & Diagnostics HUD
+- Live frame latency graph (Simulation ms, Gather ms, Render ms, Total ms).
+- Grains breakdown: Total Allocated, Alive Active, Asleep Frozen, New Spawns, Culled.
+- Memory utilization: VBO MB, SoA Pool MB, Neighbor Search Structure MB, VRAM headroom.
+- Energy metrics: Total Kinetic Energy decay curve, Mean Height, Maximum Height.
+
+---
+
+## Saga 2 Part 2 Phase 2: Ingestion, Collision & Advanced Particle Physics (Milestones 2A - 2I)
+
+### Milestone 2A: Emitter Shapes & Influx Mechanics
+- **Geometric Emitter Shapes**: Box, Sphere, Cylinder, Disc/Circle, Line/Ring.
+- **Emission Modes**: Surface emission vs. Interior Volume emission.
+- **Influx Dynamics**: Continuous spawn rate (grains/sec), single-frame burst, pulsating intervals, initial velocity vectors (directional, radial outward, conical spray), velocity jitter, radius randomization, material ID tagging.
+
+### Milestone 2B: Scene Collider Ingestion & GPU Triangle Mesh Collision
+- **Geometry Import**: Ingestion of arbitrary 3D triangle meshes (`.obj`, `.stl`, `.ply`) to simulate complex industrial environments (chutes, hoppers, stairs, pipes, terrain).
+- **GPU Linear BVH (LBVH)**: Real-time Morton-coded BVH constructed and refitted on the GPU for rapid triangle queries.
+- **Exact Point-Triangle Projection & CCD**: Continuous collision detection preventing high-velocity tunneling through thin plates.
+- **Dynamic Kinematic Transformation**: Real-time vertex velocity transfer from moving/rotating/vibrating mesh colliders directly to contacting grains.
+
+### Milestone 2C: Alembic (`.abc`) & Particulate Cache Exporter
+- **High-Performance Asynchronous Exporter**: Background streaming disk writer for industry-standard Ogawa Alembic (`.abc`) point clouds.
+- **Channels Exported**: Position (`P`), Velocity (`v`), Stable ID (`id`), Color (`Cd`), Radius (`radius`), Age/Life.
+- **Playback & Scrubbing**: Instant timeline scrubbing of disk-cached simulations without re-running physics.
+
+### Milestone 2D: True Physical Contact Mechanics (Hertz-Mindlin & Tangential History)
+- **Non-Linear Hertzian Normal Contact**: Force scales non-linearly with overlap ($F_n \propto \delta_n^{3/2}$), parameterized by physical Young's Modulus ($E$), Poisson's Ratio ($\nu$), and Restitution ($e$).
+- **Mindlin-Deresiewicz Tangential History ($\vec{\delta}_t$)**: Persistent accumulated micro-slip storage per active contact pair, eliminating numerical drift and modeling true static stick-slip behavior.
+
+### Milestone 2E: Rolling Resistance & Contact Moments (EPSD Model)
+- **Elastic-Plastic Spring-Dashpot (EPSD)**: Opposing contact moment $\vec{M}_r = -k_r \Delta \vec{\theta}_r$ resisting rotational rolling.
+- **Angular Momentum Integration**: Integrating grain spin $\vec{\omega}_i$ and angular velocity over time.
+- **Macroscopic Realism**: Reproduces natural interlocking heaps, steep talus slopes, and arching/jamming in hoppers without expensive polyhedral shapes.
+
+### Milestone 2F: Rigid Clump Super-Grains (Multi-Sphere Non-Spherical Media)
+- **Rigid Multi-Sphere Compounds**: 2 to 8 overlapping spheres locked rigidly into a single body.
+- **Rigid Kinematics**: Tracking center of mass, linear velocity, orientation quaternion $\mathbf{q}$, angular velocity, and constant principal inertia tensor.
+- **Spherical Collision Advantage**: Uses fast sphere-sphere distance tests while transferring impulses to the parent rigid body.
+
+### Milestone 2G: Two-Way Coupled 6-DOF Rigid Body Dynamics
+- **Bidirectional Force Coupling**: Grains exert reaction forces and friction onto dynamic rigid bodies ($\vec{F}_{\text{net}} = \sum \vec{f}_i$, $\vec{\tau}_{\text{net}} = \sum (\vec{r}_i \times \vec{f}_i)$).
+- **Physics Emulation**: Heavy boulders plunging into sand beds, crater formation, buoyancy in fluid-like granular media, and heavy machinery plowing with dynamic resistance.
+
+### Milestone 2H: Particle Breakage & Comminution (Fracture Mechanics)
+- **Weibull Energy Fracture Law**: Tracking cumulative impact energy and internal stress per grain.
+- **Dynamic Comminution Splitting**: Parent grain fractures into 2–4 smaller daughter particles on the GPU free-list upon exceeding rupture threshold, conserving mass and momentum.
+
+### Milestone 2I: Industrial Scaling (10M–50M Grains) & ASTM Validation Suite
+- **Memory & Bandwidth Saturation**: Optimization for 10M–50M active grains on modern NVIDIA GPUs.
+- **Standardized ASTM Verification**:
+  - Beverloo law discharge rate through conical hoppers.
+  - Rotating drum segregation and dynamic repose angle.
+  - Schulze ring shear test for powder yield loci.
+
+---
+
+# Saga 3: Volumetric Solvers & Multiphase Physics (Future)
+- SPH Liquid Simulation (Navier-Stokes, surface tension, viscosity).
+- Eulerian Grid Fluid/Smoke/Pyro Solvers.
+- Two-Way Fluid-Granular Coupling (Slurry, mud, quicksand, hydraulic erosion).
+
 
 
 

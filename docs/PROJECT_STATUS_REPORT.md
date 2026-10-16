@@ -10,9 +10,11 @@ The current target is game VFX simulation with 10M+ live particles on NVIDIA GPU
 
 ## Active Work
 
-- **Saga 2 Part 1: Granular Physics Engine is COMPLETE!**
-  - All milestones (Phases 11A through 11G) are fully implemented, benchmarked, and verified on NVIDIA hardware.
-  - Next: Preparing for the next saga milestone / engine extensions.
+- **Saga 2 Part 2: Industrial Grain Simulation Core & Simulation Studio**
+  - **Phase 1: Simulation Studio UI & UX Engine (Branch: `feature/ui-ux-engine`)**:
+    - ImGui Docking workspace, 3D transformation gizmos (ImGuizmo), outliner, full-spectrum inspector, timeline & transport controls, real-time telemetry HUD.
+  - **Phase 2: Ingestion, Collisions & Advanced Particulate Physics (Milestones 2A - 2I)**:
+    - Emitter shapes & influx dynamics, scene collider ingestion (`.obj`/`.stl` LBVH), Alembic (`.abc`) caching, Hertz-Mindlin contact, rolling resistance (EPSD), rigid clumps, 6-DOF two-way rigid coupling, comminution/breakage, and ASTM industrial benchmarks.
 
 ## Completed Work
 
