@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VParticles/SimulationTypes.h"
+#include <cuda_runtime.h>
 #include <cstdint>
 
 namespace vparticles {
