@@ -4,6 +4,35 @@
 
 namespace vparticles::viewer {
 
+inline void setupStudioFonts(ImGuiIO& io) {
+    ImFontConfig config;
+    config.OversampleH = 2;
+    config.OversampleV = 2;
+    config.PixelSnapH = true;
+
+    // Attempt to load clean Segoe UI system font on Windows
+    const char* fontPaths[] = {
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        nullptr
+    };
+
+    bool fontLoaded = false;
+    for (int i = 0; fontPaths[i] != nullptr; ++i) {
+        FILE* f = fopen(fontPaths[i], "rb");
+        if (f) {
+            fclose(f);
+            io.Fonts->AddFontFromFileTTF(fontPaths[i], 15.0f, &config);
+            fontLoaded = true;
+            break;
+        }
+    }
+
+    if (!fontLoaded) {
+        io.Fonts->AddFontDefault();
+    }
+}
+
 inline void applyStudioTheme() {
     ImGuiStyle& style = ImGui::GetStyle();
     ImVec4* colors = style.Colors;

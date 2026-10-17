@@ -54,6 +54,17 @@ inline Vec3 cross(const Vec3& a, const Vec3& b) {
     };
 }
 
+struct Vec4 {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float w = 0.0f;
+
+    Vec4() = default;
+    Vec4(float x_, float y_, float z_, float w_) : x(x_), y(y_), z(z_), w(w_) {}
+    Vec4(const Vec3& v, float w_) : x(v.x), y(v.y), z(v.z), w(w_) {}
+};
+
 // Column-major 4x4 matrix, directly compatible with OpenGL glUniformMatrix4fv(..., GL_FALSE, ...)
 struct Mat4 {
     float m[16] = {0.0f};
@@ -69,6 +80,15 @@ struct Mat4 {
 
     const float* data() const { return m; }
     float* data() { return m; }
+
+    Vec4 operator*(const Vec4& v) const {
+        return {
+            m[0] * v.x + m[4] * v.y + m[8]  * v.z + m[12] * v.w,
+            m[1] * v.x + m[5] * v.y + m[9]  * v.z + m[13] * v.w,
+            m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14] * v.w,
+            m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15] * v.w
+        };
+    }
 
     Mat4 operator*(const Mat4& rhs) const {
         Mat4 out;
@@ -93,6 +113,18 @@ struct Mat4 {
         res.m[11] = -1.0f;
         res.m[14] = -(2.0f * farZ * nearZ) / (farZ - nearZ);
         res.m[15] = 0.0f;
+        return res;
+    }
+
+    static Mat4 orthographic(float left, float right, float bottom, float top, float nearZ, float farZ) {
+        Mat4 res = Mat4::identity();
+        res.m[0]  = 2.0f / (right - left);
+        res.m[5]  = 2.0f / (top - bottom);
+        res.m[10] = -2.0f / (farZ - nearZ);
+        res.m[12] = -(right + left) / (right - left);
+        res.m[13] = -(top + bottom) / (top - bottom);
+        res.m[14] = -(farZ + nearZ) / (farZ - nearZ);
+        res.m[15] = 1.0f;
         return res;
     }
 

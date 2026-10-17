@@ -104,6 +104,11 @@ public:
     }
 
     Mat4 projectionMatrix(float aspect, float nearZ = 0.02f, float farZ = 2000.0f) const {
+        if (isOrthographic_) {
+            float halfH = distance_ * std::tan(toRadians(fovDegrees_ * 0.5f));
+            float halfW = halfH * aspect;
+            return Mat4::orthographic(-halfW, halfW, -halfH, halfH, nearZ, farZ);
+        }
         return Mat4::perspective(toRadians(fovDegrees_), aspect, nearZ, farZ);
     }
 
@@ -118,11 +123,21 @@ public:
     float yaw() const { return yaw_; }
     float pitch() const { return pitch_; }
     float fovDegrees() const { return fovDegrees_; }
+    float fovRadians() const { return toRadians(fovDegrees_); }
     float flySpeed() const { return flySpeed_; }
+
+    bool isOrthographic() const { return isOrthographic_; }
+    void setOrthographic(bool ortho) { isOrthographic_ = ortho; }
+    void toggleOrthographic() { isOrthographic_ = !isOrthographic_; }
 
     void setSnapView(float targetYaw, float targetPitch) {
         yaw_ = targetYaw;
-        pitch_ = targetPitch;
+        pitch_ = std::clamp(targetPitch, -89.9f, 89.9f);
+    }
+
+    void frameTarget(const Vec3& target, float distance = 2.0f) {
+        target_ = target;
+        distance_ = std::clamp(distance, 0.2f, 100.0f);
     }
 
 private:
@@ -132,6 +147,7 @@ private:
     float pitch_ = 22.0f;
     float fovDegrees_ = 50.0f;
     float flySpeed_ = 2.0f;
+    bool isOrthographic_ = false;
 };
 
 } // namespace vparticles::viewer

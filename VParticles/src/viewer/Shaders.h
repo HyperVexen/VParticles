@@ -7,13 +7,18 @@
 namespace vparticles::viewer {
 
 inline const char* kParticleVertexShaderSrc = R"(#version 450 core
-layout(location = 0) in vec4 in_Position; // xyz = world pos, w = size
+layout(location = 0) in vec4 in_Position; // xyz = world pos, w = physical radius (m)
 layout(location = 1) in vec4 in_Color;    // rgba
 
 uniform mat4  uViewProj;
 uniform vec3  uEyePos;
 uniform float uViewportHeight;
-uniform float uPointScale;
+uniform float uDisplayScale;
+uniform float uMinPointSize;
+uniform float uMaxPointSize;
+uniform float uFovRad;
+uniform int   uIsOrthographic;
+uniform float uOrthoHeight;
 
 out vec4 vColor;
 
@@ -21,13 +26,22 @@ void main() {
     vec4 worldPos = vec4(in_Position.xyz, 1.0);
     gl_Position = uViewProj * worldPos;
 
-    float dist = length(uEyePos - in_Position.xyz);
-    if (dist < 0.01) dist = 0.01;
+    float rWorld = in_Position.w;
+    if (rWorld <= 0.0) rWorld = 0.01;
+    float diameter = rWorld * 2.0 * uDisplayScale;
 
-    // Attenuate point size by distance to camera
-    float pSize = ((in_Position.w * uPointScale) * uViewportHeight) / (dist * 1.2);
-    gl_PointSize = clamp(pSize, 1.5, 256.0);
+    float pixelSize;
+    if (uIsOrthographic != 0) {
+        float oHeight = max(uOrthoHeight, 0.001);
+        pixelSize = (diameter / oHeight) * uViewportHeight;
+    } else {
+        float dist = length(uEyePos - in_Position.xyz);
+        if (dist < 0.01) dist = 0.01;
+        float focalLength = uViewportHeight / (2.0 * tan(max(uFovRad, 0.01) * 0.5));
+        pixelSize = (diameter / dist) * focalLength;
+    }
 
+    gl_PointSize = clamp(pixelSize, uMinPointSize, uMaxPointSize);
     vColor = in_Color;
 }
 )";
@@ -36,29 +50,34 @@ inline const char* kParticleFragmentShaderSrc = R"(#version 450 core
 in vec4 vColor;
 out vec4 fragColor;
 
-uniform int uIsGranular;
+uniform int uRenderStyle; // 0: Shaded Sphere, 1: Flat Disc, 2: Wire Ring
 
 void main() {
-    // gl_PointCoord has range [0, 1] inside point sprite
     vec2 coord = gl_PointCoord * 2.0 - 1.0;
     float distSq = dot(coord, coord);
     if (distSq > 1.0) {
         discard;
     }
 
-    if (uIsGranular != 0) {
-        // Shaded 3D sphere representation for granular grains
+    if (uRenderStyle == 0) {
+        // Shaded 3D sphere: analytical normal reconstruction
         float nz = sqrt(1.0 - distSq);
         vec3 N = vec3(coord.x, -coord.y, nz);
         vec3 L = normalize(vec3(0.5, 0.8, 0.6));
         float diff = max(0.35, dot(N, L));
-        float spec = pow(max(0.0, dot(reflect(-L, N), vec3(0.0, 0.0, 1.0))), 16.0) * 0.25;
-        fragColor = vec4(vColor.rgb * diff + vec3(spec), 1.0);
+        float spec = pow(max(0.0, dot(reflect(-L, N), vec3(0.0, 0.0, 1.0))), 16.0) * 0.35;
+        float rim = smoothstep(1.0, 0.85, distSq);
+        vec3 finalCol = (vColor.rgb * diff + vec3(spec)) * (0.8 + 0.2 * rim);
+        fragColor = vec4(finalCol, vColor.a);
+    } else if (uRenderStyle == 1) {
+        // Flat circular disc with smooth anti-aliased edge
+        float edge = smoothstep(1.0, 0.90, distSq);
+        fragColor = vec4(vColor.rgb, vColor.a * edge);
     } else {
-        // Smooth circular alpha falloff for effects
-        float shape = smoothstep(1.0, 0.0, distSq);
-        float alpha = vColor.a * shape;
-        fragColor = vec4(vColor.rgb, alpha);
+        // Wire / diagnostic ring
+        float ring = smoothstep(0.65, 0.75, distSq) * smoothstep(1.0, 0.92, distSq);
+        if (ring < 0.05) discard;
+        fragColor = vec4(vColor.rgb, vColor.a * ring);
     }
 }
 )";
@@ -106,8 +125,13 @@ public:
         uViewProjLoc_       = glGetUniformLocation(id_, "uViewProj");
         uEyePosLoc_         = glGetUniformLocation(id_, "uEyePos");
         uViewportHeightLoc_ = glGetUniformLocation(id_, "uViewportHeight");
-        uPointScaleLoc_     = glGetUniformLocation(id_, "uPointScale");
-        uIsGranularLoc_     = glGetUniformLocation(id_, "uIsGranular");
+        uDisplayScaleLoc_   = glGetUniformLocation(id_, "uDisplayScale");
+        uMinPointSizeLoc_   = glGetUniformLocation(id_, "uMinPointSize");
+        uMaxPointSizeLoc_   = glGetUniformLocation(id_, "uMaxPointSize");
+        uFovRadLoc_         = glGetUniformLocation(id_, "uFovRad");
+        uIsOrthographicLoc_ = glGetUniformLocation(id_, "uIsOrthographic");
+        uOrthoHeightLoc_    = glGetUniformLocation(id_, "uOrthoHeight");
+        uRenderStyleLoc_    = glGetUniformLocation(id_, "uRenderStyle");
 
         return true;
     }
@@ -128,12 +152,23 @@ public:
         if (uViewportHeightLoc_ >= 0) glUniform1f(uViewportHeightLoc_, h);
     }
 
-    void setPointScale(float s) const {
-        if (uPointScaleLoc_ >= 0) glUniform1f(uPointScaleLoc_, s);
+    void setDisplayScale(float s) const {
+        if (uDisplayScaleLoc_ >= 0) glUniform1f(uDisplayScaleLoc_, s);
     }
 
-    void setIsGranular(bool isGranular) const {
-        if (uIsGranularLoc_ >= 0) glUniform1i(uIsGranularLoc_, isGranular ? 1 : 0);
+    void setMinMaxPointSize(float minSz, float maxSz) const {
+        if (uMinPointSizeLoc_ >= 0) glUniform1f(uMinPointSizeLoc_, minSz);
+        if (uMaxPointSizeLoc_ >= 0) glUniform1f(uMaxPointSizeLoc_, maxSz);
+    }
+
+    void setCameraProjection(float fovRad, bool isOrtho, float orthoHeight) const {
+        if (uFovRadLoc_ >= 0) glUniform1f(uFovRadLoc_, fovRad);
+        if (uIsOrthographicLoc_ >= 0) glUniform1i(uIsOrthographicLoc_, isOrtho ? 1 : 0);
+        if (uOrthoHeightLoc_ >= 0) glUniform1f(uOrthoHeightLoc_, orthoHeight);
+    }
+
+    void setRenderStyle(int style) const {
+        if (uRenderStyleLoc_ >= 0) glUniform1i(uRenderStyleLoc_, style);
     }
 
     GLuint id() const { return id_; }
@@ -148,7 +183,7 @@ private:
         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
         if (!success) {
             char log[1024];
-            glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
+            glGetProgramInfoLog(shader, sizeof(log), nullptr, log);
             std::cerr << "Shader compile error (" << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "):\n"
                       << log << std::endl;
             glDeleteShader(shader);
@@ -158,11 +193,16 @@ private:
     }
 
     GLuint id_ = 0;
-    GLint uViewProjLoc_ = -1;
-    GLint uEyePosLoc_ = -1;
+    GLint uViewProjLoc_       = -1;
+    GLint uEyePosLoc_         = -1;
     GLint uViewportHeightLoc_ = -1;
-    GLint uPointScaleLoc_ = -1;
-    GLint uIsGranularLoc_ = -1;
+    GLint uDisplayScaleLoc_   = -1;
+    GLint uMinPointSizeLoc_   = -1;
+    GLint uMaxPointSizeLoc_   = -1;
+    GLint uFovRadLoc_         = -1;
+    GLint uIsOrthographicLoc_ = -1;
+    GLint uOrthoHeightLoc_    = -1;
+    GLint uRenderStyleLoc_    = -1;
 };
 
 } // namespace vparticles::viewer

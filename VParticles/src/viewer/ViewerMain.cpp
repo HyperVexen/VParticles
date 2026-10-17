@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -64,6 +65,24 @@ struct AppState {
 
 AppState g_app;
 
+void frameSelectedObject(StudioState& state, StudioCamera& camera) {
+    if (state.selectedType == SelectedEntityType::ColliderMovingPlow) {
+        camera.frameTarget({state.granularSettings.kinematicOrigin.x,
+                            state.granularSettings.kinematicOrigin.y,
+                            state.granularSettings.kinematicOrigin.z},
+                           std::max(0.8f, state.granularSettings.kinematicRadius * 3.5f));
+    } else if (state.selectedType == SelectedEntityType::Emitter) {
+        camera.frameTarget({state.emitterPosition.x, state.emitterPosition.y, state.emitterPosition.z}, 1.5f);
+    } else if (state.selectedType == SelectedEntityType::ColliderObstacleSphere) {
+        camera.frameTarget({state.granularSettings.obstacleSphere.center.x,
+                            state.granularSettings.obstacleSphere.center.y,
+                            state.granularSettings.obstacleSphere.center.z},
+                           std::max(0.8f, state.granularSettings.obstacleSphere.radius * 3.5f));
+    } else {
+        camera.frameTarget({0.0f, 0.35f, 0.0f}, 2.5f);
+    }
+}
+
 void framebufferSizeCallback(GLFWwindow* /*window*/, int width, int height) {
     if (width > 0 && height > 0) {
         g_app.config.windowWidth = width;
@@ -72,11 +91,11 @@ void framebufferSizeCallback(GLFWwindow* /*window*/, int width, int height) {
 }
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*/) {
-    ImGuiIO& io = ImGui::GetIO();
+    bool canNavigate = g_app.ui.isViewportHovered() && !g_app.ui.isAnyToolbarHovered() && !g_app.ui.isUsingGizmo() && !ImGuizmo::IsOver();
 
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         if (action == GLFW_PRESS) {
-            if (g_app.ui.isViewportHovered() && !g_app.ui.isUsingGizmo() && !io.WantCaptureMouse) {
+            if (canNavigate) {
                 g_app.leftMouseDown = true;
             }
         } else {
@@ -84,7 +103,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*
         }
     } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
         if (action == GLFW_PRESS) {
-            if (g_app.ui.isViewportHovered() && !g_app.ui.isUsingGizmo()) {
+            if (g_app.ui.isViewportHovered() && !g_app.ui.isAnyToolbarHovered() && !g_app.ui.isUsingGizmo()) {
                 g_app.rightMouseDown = true;
                 g_app.state.isFlyModeActive = true;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -99,7 +118,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*
         }
     } else if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
         if (action == GLFW_PRESS) {
-            if (g_app.ui.isViewportHovered() && !io.WantCaptureMouse) {
+            if (canNavigate) {
                 g_app.middleMouseDown = true;
             }
         } else {
@@ -116,27 +135,46 @@ void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
     g_app.lastMouseX = xpos;
     g_app.lastMouseY = ypos;
 
+    // 1. JangaFX Free-Fly Mode: look around
     if (g_app.rightMouseDown && g_app.state.isFlyModeActive) {
-        // JangaFX Free-Fly Mode: look around
         g_app.camera.processOrbit(-dx, -dy, 0.16f);
-    } else if (g_app.leftMouseDown && !g_app.ui.isUsingGizmo()) {
-        bool altDown = (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS);
-        if (altDown) {
-            g_app.camera.processOrbit(dx, dy, 0.28f);
+        return;
+    }
+
+    // 2. Middle Mouse Button (Blender-standard navigation: MMB orbit, Shift+MMB pan, Ctrl+MMB zoom)
+    if (g_app.middleMouseDown) {
+        bool shiftDown = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+        bool ctrlDown  = (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
+
+        if (shiftDown) {
+            g_app.camera.processPan(dx, dy, 0.003f);
+        } else if (ctrlDown) {
+            g_app.camera.processZoom(-dy * 0.02f, 0.15f);
         } else {
             g_app.camera.processOrbit(dx, dy, 0.28f);
         }
-    } else if (g_app.middleMouseDown) {
-        g_app.camera.processPan(dx, dy, 0.003f);
+        return;
+    }
+
+    // 3. Left Mouse Button fallback (Alt + LMB / Trackpad navigation)
+    if (g_app.leftMouseDown && !g_app.ui.isUsingGizmo() && !ImGuizmo::IsOver()) {
+        bool altDown = (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS);
+        if (altDown) {
+            bool shiftDown = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+            if (shiftDown) {
+                g_app.camera.processPan(dx, dy, 0.003f);
+            } else {
+                g_app.camera.processOrbit(dx, dy, 0.28f);
+            }
+        }
     }
 }
 
 void scrollCallback(GLFWwindow* /*window*/, double /*xoffset*/, double yoffset) {
-    ImGuiIO& io = ImGui::GetIO();
     if (g_app.rightMouseDown && g_app.state.isFlyModeActive) {
         // Adjust fly speed when scrolling during RMB hold
         g_app.camera.adjustFlySpeed(static_cast<float>(yoffset));
-    } else if (g_app.ui.isViewportHovered() && !io.WantCaptureMouse) {
+    } else if (g_app.ui.isViewportHovered() && !g_app.ui.isAnyToolbarHovered()) {
         g_app.camera.processZoom(static_cast<float>(yoffset), 0.15f);
     }
 }
@@ -146,15 +184,24 @@ void keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int 
     if (io.WantTextInput) return;
     if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
 
+    bool ctrlDown = (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
+
     switch (key) {
     case GLFW_KEY_ESCAPE:
         glfwSetWindowShouldClose(window, GLFW_TRUE);
         break;
     case GLFW_KEY_SPACE:
-        g_app.state.isPlaying = !g_app.state.isPlaying;
+        if (ctrlDown) {
+            g_app.state.isMaximizedViewport = !g_app.state.isMaximizedViewport;
+        } else {
+            g_app.state.isPlaying = !g_app.state.isPlaying;
+        }
+        break;
+    case GLFW_KEY_F11:
+        g_app.state.isMaximizedViewport = !g_app.state.isMaximizedViewport;
         break;
     case GLFW_KEY_R:
-        if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || !g_app.ui.isViewportFocused()) {
+        if (ctrlDown || !g_app.ui.isViewportFocused()) {
             g_app.state.resetRequested = true;
         } else {
             g_app.state.currentGizmoOperation = ImGuizmo::SCALE;
@@ -183,6 +230,36 @@ void keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int 
         break;
     case GLFW_KEY_H:
         g_app.state.showStatsOverlay = !g_app.state.showStatsOverlay;
+        break;
+    case GLFW_KEY_HOME:
+        g_app.camera.reset({0.0f, 0.35f, 0.0f}, 3.0f, 25.0f, 22.0f);
+        break;
+    case GLFW_KEY_KP_DECIMAL:
+        frameSelectedObject(g_app.state, g_app.camera);
+        break;
+    case GLFW_KEY_KP_1:
+        if (ctrlDown) {
+            g_app.camera.setSnapView(180.0f, 0.0f); // Back
+        } else {
+            g_app.camera.setSnapView(0.0f, 0.0f);   // Front
+        }
+        break;
+    case GLFW_KEY_KP_3:
+        if (ctrlDown) {
+            g_app.camera.setSnapView(-90.0f, 0.0f); // Left
+        } else {
+            g_app.camera.setSnapView(90.0f, 0.0f);  // Right
+        }
+        break;
+    case GLFW_KEY_KP_7:
+        if (ctrlDown) {
+            g_app.camera.setSnapView(0.0f, -89.9f); // Bottom
+        } else {
+            g_app.camera.setSnapView(0.0f, 89.9f);  // Top
+        }
+        break;
+    case GLFW_KEY_KP_5:
+        g_app.camera.toggleOrthographic();
         break;
     case GLFW_KEY_1:
         g_app.state.currentScenarioIndex = 0;
@@ -307,6 +384,23 @@ void applySandScenario(ParticleSystem& system, int scenario, const ViewerConfig&
     }
 }
 
+void exportTelemetryToCsv(const StudioState& state) {
+    std::ofstream out("benchmark_telemetry.csv");
+    if (!out.is_open()) return;
+
+    out << "SampleIndex,SimSolveMs,GatherMs,RenderMs,TotalMs,FPS\n";
+    for (int i = 0; i < state.metrics.count; ++i) {
+        int idx = (state.metrics.cursor - state.metrics.count + i + RollingMetrics::kHistorySize) % RollingMetrics::kHistorySize;
+        out << i << ","
+            << std::fixed << std::setprecision(3) << state.metrics.simMs[idx] << ","
+            << state.metrics.gatherMs[idx] << ","
+            << state.metrics.renderMs[idx] << ","
+            << state.metrics.totalMs[idx] << ","
+            << std::setprecision(1) << state.metrics.fps[idx] << "\n";
+    }
+    std::cout << "[Studio] Exported " << state.metrics.count << " samples to benchmark_telemetry.csv\n";
+}
+
 void printHelp() {
     std::cout << "VParticles Simulation Studio - Industrial Granular DEM Engine\n"
               << "Usage: VParticlesViewer [options]\n\n"
@@ -323,15 +417,19 @@ void printHelp() {
               << "  --grain-radius <R>      Base grain radius (m, default: 0.01)\n"
               << "  --frames <N>            Exit after N frames (benchmark)\n"
               << "  --help                  Display this help message\n\n"
-              << "Studio Navigation Controls:\n"
-              << "  Viewport LMB Drag       Orbit camera around target\n"
-              << "  Viewport MMB Drag       Pan camera (or Alt + LMB)\n"
-              << "  Viewport Scroll         Zoom camera distance\n"
-              << "  Hold RMB + WASD/QE      JangaFX Free-Fly Camera (Shift to boost, Scroll to adjust speed)\n"
+              << "Studio Navigation Controls (Blender Convention):\n"
+              << "  MMB Drag                Turntable Orbit camera around target\n"
+              << "  Shift + MMB Drag        Pan camera across view plane\n"
+              << "  Ctrl + MMB Drag / Wheel Zoom camera distance\n"
+              << "  Hold RMB + WASD/QE      JangaFX Free-Fly Camera (Shift for turbo, Scroll for speed)\n"
+              << "  Numpad 1 / 3 / 7        Front / Right / Top orthographic snap views (Ctrl for opposite)\n"
+              << "  Numpad 5                Toggle Perspective / Orthographic projection\n"
+              << "  Home                    Frame entire simulation scene bounds\n"
+              << "  Numpad .                Frame selected object\n"
               << "  Space                   Play / Pause simulation\n"
+              << "  Ctrl + Space / F11      Toggle Maximize Viewport mode\n"
               << "  Ctrl + R                Reset active simulation scenario\n"
-              << "  W / E / R / Q           Gizmo Transform: Translate / Rotate / Scale / None\n"
-              << "  C                       Reset camera to default view\n"
+              << "  W / E / R / Q           Gizmo Transform: Translate / Rotate / Scale / View\n"
               << "  G                       Toggle Infinite Ground Grid\n"
               << "  H                       Toggle Telemetry HUD overlay\n"
               << "  1 - 7                   Load Scenarios (Pile, Column, Funnel, Dune, Cliff, Block, Clumps)\n"
@@ -382,7 +480,7 @@ int main(int argc, char** argv) {
 
     g_app.config = config;
     g_app.state.currentScenarioIndex = config.sandScenario;
-    g_app.state.pointScale = config.pointScale;
+    g_app.state.displayScale = config.pointScale;
     g_app.state.capacity = config.capacity;
 
     if (!glfwInit()) {
@@ -429,7 +527,7 @@ int main(int argc, char** argv) {
     glfwSetScrollCallback(window, scrollCallback);
     glfwSetKeyCallback(window, keyCallback);
 
-    // Initialize Studio UI (ImGui Dockspace + JangaFX Theme + ImGuizmo)
+    // Initialize Studio UI (ImGui Dockspace + Desktop Fonts + Studio Theme + ImGuizmo)
     if (!g_app.ui.init(window)) {
         std::cerr << "Failed to initialize Studio UI" << std::endl;
         glfwDestroyWindow(window);
@@ -474,7 +572,7 @@ int main(int argc, char** argv) {
     const size_t vboBytes = static_cast<size_t>(config.capacity) * sizeof(RenderVertex);
     glBufferData(GL_ARRAY_BUFFER, vboBytes, nullptr, GL_DYNAMIC_DRAW);
 
-    // Location 0: in_Position (vec4: xyz = pos, w = size)
+    // Location 0: in_Position (vec4: xyz = pos, w = physical radius)
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex), reinterpret_cast<void*>(0));
 
@@ -544,14 +642,21 @@ int main(int argc, char** argv) {
             g_app.state.resetRequested = false;
         }
 
-        // 3. Sync live parameters from Inspector to CUDA ParticleSystem
+        // 3. Export Telemetry Request
+        if (g_app.state.exportBenchmarkRequested) {
+            exportTelemetryToCsv(g_app.state);
+            g_app.state.exportBenchmarkRequested = false;
+        }
+
+        // 4. Sync live parameters from Inspector to CUDA ParticleSystem
         system.setGranularSettings(g_app.state.granularSettings);
 
-        // 4. Physical simulation step
+        // 5. Physical simulation step
         float simMs = 0.0f;
         if (g_app.state.isPlaying || g_app.state.stepRequest != 0) {
             auto simStart = std::chrono::high_resolution_clock::now();
             float simDt = g_app.state.granularSettings.fixedDt > 0.0f ? g_app.state.granularSettings.fixedDt : (1.0f / 60.0f);
+            simDt *= g_app.state.timeScale;
             system.update(simDt);
             system.synchronize();
             auto simEnd = std::chrono::high_resolution_clock::now();
@@ -569,7 +674,7 @@ int main(int argc, char** argv) {
             g_app.state.stepRequest = 0;
         }
 
-        // 5. Query GPU Simulation Telemetry
+        // 6. Query GPU Simulation Telemetry
         const auto& gStats = system.granularStats();
         g_app.state.liveAliveGrains = gStats.aliveCount;
         g_app.state.liveAsleepGrains = gStats.asleepCount;
@@ -580,13 +685,13 @@ int main(int argc, char** argv) {
         g_app.state.liveKineticEnergy = gStats.kineticEnergy;
         g_app.state.liveVboMemoryBytes = vboBytes;
 
-        // 6. Gather into OpenGL VBO via CUDA-GL Bridge
+        // 7. Gather into OpenGL VBO via CUDA-GL Bridge
         auto gatherStart = std::chrono::high_resolution_clock::now();
-        bridge.gatherGranular(system.granularBuffers(), g_app.state.sandColorMode, 3.0f, g_app.state.pointScale);
+        bridge.gatherGranular(system.granularBuffers(), g_app.state.sandColorMode, g_app.state.velocityRangeMax, 1.0f);
         auto gatherEnd = std::chrono::high_resolution_clock::now();
         float gatherMs = std::chrono::duration<float, std::milli>(gatherEnd - gatherStart).count();
 
-        // 7. Render 3D Scene into Viewport Offscreen FBO
+        // 8. Render 3D Scene into Viewport Offscreen FBO
         auto renderStart = std::chrono::high_resolution_clock::now();
         if (g_app.vpWidth > 0 && g_app.vpHeight > 0) {
             g_app.fbo.resize(g_app.vpWidth, g_app.vpHeight);
@@ -605,30 +710,35 @@ int main(int argc, char** argv) {
         Mat4 proj = g_app.camera.projectionMatrix(aspect);
         Vec3 eye  = g_app.camera.eyePosition();
 
-        // 7a. Infinite Ground Grid
+        // 8a. Infinite Ground Grid
         if (g_app.state.showInfiniteGrid) {
             g_app.grid.draw(view, proj, eye);
         }
 
-        // 7b. Granular Particles (DEM point spheres)
-        Mat4 vp = proj * view;
-        shader.use();
-        shader.setViewProj(vp.data());
-        shader.setEyePos(eye.x, eye.y, eye.z);
-        shader.setViewportHeight(static_cast<float>(g_app.fbo.height()));
-        shader.setPointScale(g_app.state.pointScale);
-        shader.setIsGranular(true);
+        // 8b. Granular Particles with Physical Perspective & Decoupled Display Scale
+        if (g_app.state.showParticles) {
+            Mat4 vp = proj * view;
+            shader.use();
+            shader.setViewProj(vp.data());
+            shader.setEyePos(eye.x, eye.y, eye.z);
+            shader.setViewportHeight(static_cast<float>(g_app.fbo.height()));
+            shader.setDisplayScale(g_app.state.displayScale);
+            shader.setMinMaxPointSize(g_app.state.minPointSize, g_app.state.maxPointSize);
+            float orthoHeight = g_app.camera.distance() * std::tan(g_app.camera.fovRadians() * 0.5f) * 2.0f;
+            shader.setCameraProjection(g_app.camera.fovRadians(), g_app.camera.isOrthographic(), orthoHeight);
+            shader.setRenderStyle(g_app.state.renderStyle);
 
-        glBindVertexArray(vao);
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
-        glDrawArraysIndirect(GL_POINTS, reinterpret_cast<const void*>(0));
-        glBindVertexArray(0);
+            glBindVertexArray(vao);
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
+            glDrawArraysIndirect(GL_POINTS, reinterpret_cast<const void*>(0));
+            glBindVertexArray(0);
+        }
 
         g_app.fbo.unbind();
         auto renderEnd = std::chrono::high_resolution_clock::now();
         float renderMs = std::chrono::duration<float, std::milli>(renderEnd - renderStart).count();
 
-        // 8. Render Studio UI (Dockspace, Panels, Overlays) to Main Window
+        // 9. Render Studio UI (Dockspace, Panels, Overlays) to Main Window
         int dispW = 0, dispH = 0;
         glfwGetFramebufferSize(window, &dispW, &dispH);
         glViewport(0, 0, dispW, dispH);
@@ -642,7 +752,7 @@ int main(int argc, char** argv) {
         glfwSwapBuffers(window);
         glfwPollEvents();
 
-        // 9. Frame Metrics & Diagnostics
+        // 10. Frame Metrics & Diagnostics
         auto frameEndTime = std::chrono::high_resolution_clock::now();
         float totalFrameMs = std::chrono::duration<float, std::milli>(frameEndTime - frameStartTime).count();
         float currentFps = (totalFrameMs > 0.0f) ? (1000.0f / totalFrameMs) : 0.0f;
@@ -666,7 +776,7 @@ int main(int argc, char** argv) {
             break;
         }
 
-        // 10. Window Title Telemetry (~4 Hz)
+        // 11. Window Title Telemetry (~4 Hz)
         std::chrono::duration<double> titleElapsed = frameEndTime - lastTitleUpdate;
         if (titleElapsed.count() >= 0.25) {
             lastTitleUpdate = frameEndTime;

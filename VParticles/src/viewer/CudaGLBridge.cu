@@ -100,7 +100,7 @@ __global__ void gatherGranularRenderKernel(
 
     float4 p = pos[idx];
     float r = p.w > 0.0f ? p.w : 0.01f;
-    float renderSize = r * 80.0f * basePointSize;
+    float renderSize = r; // Preserve actual physical radius (meters)
 
     float4 col = make_float4(0.85f, 0.72f, 0.50f, 1.0f); // Default quartz sand
 
@@ -115,16 +115,21 @@ __global__ void gatherGranularRenderKernel(
         // Velocity heatmap
         float4 v = vel[idx];
         float speed = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-        float t = speed / fmaxf(maxSpeed, 0.1f);
+        float t = speed / fmaxf(maxSpeed, 0.05f);
         float3 rgb = turboColormap(t);
         col = make_float4(rgb.x, rgb.y, rgb.z, 1.0f);
     } else if (colorMode == 2 && flags) {
         // Sleeping state: cool slate blue if asleep, radiant amber/gold if awake
         if (flags[idx] & 0x0001) { // kGrainFlagAsleep
-            col = make_float4(0.35f, 0.50f, 0.70f, 0.85f);
+            col = make_float4(0.32f, 0.50f, 0.78f, 0.90f);
         } else {
             col = make_float4(1.0f, 0.65f, 0.15f, 1.0f);
         }
+    } else if (colorMode == 3) {
+        // Height / Elevation gradient
+        float t = fminf(fmaxf(p.y / 1.0f, 0.0f), 1.0f);
+        float3 rgb = turboColormap(t);
+        col = make_float4(rgb.x, rgb.y, rgb.z, 1.0f);
     }
 
     outVertices[idx] = RenderVertex{

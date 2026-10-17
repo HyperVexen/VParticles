@@ -23,13 +23,14 @@ enum class SelectedEntityType : uint8_t {
 };
 
 struct RollingMetrics {
-    static constexpr int kHistorySize = 120;
+    static constexpr int kHistorySize = 180;
     float simMs[kHistorySize] = {0.0f};
     float gatherMs[kHistorySize] = {0.0f};
     float renderMs[kHistorySize] = {0.0f};
     float totalMs[kHistorySize] = {0.0f};
     float fps[kHistorySize] = {0.0f};
     int cursor = 0;
+    int count = 0;
 
     void record(float sMs, float gMs, float rMs, float tMs, float currentFps) {
         simMs[cursor]    = sMs;
@@ -38,6 +39,15 @@ struct RollingMetrics {
         totalMs[cursor]  = tMs;
         fps[cursor]      = currentFps;
         cursor = (cursor + 1) % kHistorySize;
+        if (count < kHistorySize) count++;
+    }
+
+    void reset() {
+        for (int i = 0; i < kHistorySize; ++i) {
+            simMs[i] = gatherMs[i] = renderMs[i] = totalMs[i] = fps[i] = 0.0f;
+        }
+        cursor = 0;
+        count = 0;
     }
 };
 
@@ -62,14 +72,28 @@ struct StudioState {
     bool isLooping = true;
     int stepRequest = 0;   // +1 step forward, -1 step backward
     bool resetRequested = false;
+    float timeScale = 1.0f;
 
     // --- Viewport Display & Shading ---
-    int sandColorMode = 0; // 0: Material Tint, 1: Velocity Heatmap, 2: Sleeping State
-    float pointScale = 1.0f;
+    int sandColorMode = 0; // 0: Material Tint, 1: Velocity Heatmap, 2: Sleeping State, 3: Height Elevation
+    float velocityRangeMax = 3.0f; // Max velocity in m/s for colormap
+    float displayScale = 1.0f;     // Visual scale multiplier (independent of physical grain radius)
+    float minPointSize = 1.5f;     // Screen clamp min pixels
+    float maxPointSize = 64.0f;    // Screen clamp max pixels
+    int renderStyle = 0;           // 0: Shaded Sphere, 1: Flat Disc, 2: Wire Ring
+
     bool showInfiniteGrid = true;
     bool showStatsOverlay = true;
+    bool showColormapLegend = true;
     bool showGizmo = true;
     bool isFlyModeActive = false;
+    bool isMaximizedViewport = false;
+
+    // --- Visibility Filters ---
+    bool showParticles = true;
+    bool showColliders = true;
+    bool showEmitters = true;
+    char outlinerFilter[64] = "";
 
     // --- Active Scenario ---
     int currentScenarioIndex = 1; // 0: pile, 1: column_collapse, 2: funnel, 3: dune, 4: cliff, 5: bonded_block, 6: clumps
@@ -77,7 +101,7 @@ struct StudioState {
 
     // --- Live Granular Settings ---
     GranularSettings granularSettings = {};
-    uint32_t capacity = 250000;
+    uint32_t capacity = 500000;
     float fixedDt = 1.0f / 60.0f;
 
     // --- Emitter Configuration (Gizmo-bound) ---
@@ -95,6 +119,7 @@ struct StudioState {
     float lastRenderTimeMs = 0.0f;
     float lastFrameTimeMs = 0.0f;
     float currentFps = 0.0f;
+    bool exportBenchmarkRequested = false;
 
     // --- Live Simulation Telemetry ---
     uint32_t liveAliveGrains = 0;
