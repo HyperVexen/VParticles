@@ -4,6 +4,7 @@
 
 #include "VParticles/ParticleSystem.h"
 #include "VParticles/SimulationTypes.h"
+#include "ColliderRenderer.h"
 #include "CudaGLBridge.h"
 #include "GridShader.h"
 #include "Math3D.h"
@@ -50,6 +51,7 @@ struct AppState {
     StudioState state;
     StudioUI ui;
     InfiniteGridRenderer grid;
+    ColliderRenderer colliderRenderer;
     ViewportFramebuffer fbo;
     ViewerConfig config;
 
@@ -135,9 +137,9 @@ void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
     g_app.lastMouseX = xpos;
     g_app.lastMouseY = ypos;
 
-    // 1. JangaFX Free-Fly Mode: look around
+    // 1. JangaFX Free-Fly Mode: look around (forward mouse movement tilts camera UP)
     if (g_app.rightMouseDown && g_app.state.isFlyModeActive) {
-        g_app.camera.processOrbit(-dx, -dy, 0.16f);
+        g_app.camera.processOrbit(-dx, dy, 0.16f);
         return;
     }
 
@@ -307,29 +309,47 @@ const char* getSandScenarioName(int scenario) {
     }
 }
 
-void applySandScenario(ParticleSystem& system, int scenario, const ViewerConfig& config, bool enableKinematic) {
+void applySandScenario(ParticleSystem& system, int scenario, const ViewerConfig& config, bool enableKinematic, const GranularSettings* preserveSettings = nullptr) {
     system.reset();
     system.clearEmitters();
     system.setSimulationMode(SimulationMode::Granular);
 
     GranularSettings settings;
-    settings.grainRadius = config.grainRadius > 0.0f ? config.grainRadius : 0.01f;
-    settings.enableSleeping = true;
-    settings.sleepSpeedThreshold = 0.02f;
-    settings.substeps = 4;
-    settings.iterations = 4;
-    settings.groundPlane.enabled = 1;
-    settings.groundPlane.point = {0.0f, 0.0f, 0.0f};
-    settings.groundPlane.normal = {0.0f, 1.0f, 0.0f};
-    settings.groundPlane.friction = 0.58f;
+    if (preserveSettings) {
+        settings = *preserveSettings;
+    } else {
+        settings.grainRadius = config.grainRadius > 0.0f ? config.grainRadius : 0.01f;
+        settings.enableSleeping = true;
+        settings.sleepSpeedThreshold = 0.02f;
+        settings.substeps = 4;
+        settings.iterations = 4;
+        settings.groundPlane.enabled = 1;
+        settings.groundPlane.point = {0.0f, 0.0f, 0.0f};
+        settings.groundPlane.normal = {0.0f, 1.0f, 0.0f};
+        settings.groundPlane.friction = 0.58f;
 
-    if (enableKinematic) {
-        settings.kinematicColliderEnabled = 1;
-        settings.kinematicColliderType = (scenario % 2); // alternate linear plow / rotating churner
-        settings.kinematicOrigin = {0.0f, 0.15f, 0.0f};
-        settings.kinematicRadius = 0.10f;
-        settings.kinematicSpeed = 2.0f;
-        settings.kinematicAmplitude = 0.35f;
+        // Default interactive 3D obstacle sphere in the simulation path
+        settings.obstacleSphere.enabled = 1;
+        settings.obstacleSphere.center = {0.0f, 0.25f, 0.0f};
+        settings.obstacleSphere.radius = 0.15f;
+
+        if (enableKinematic) {
+            settings.kinematicColliderEnabled = 1;
+            settings.kinematicColliderType = (scenario % 2); // alternate linear plow / rotating churner
+            settings.kinematicOrigin = {0.0f, 0.15f, 0.0f};
+            settings.kinematicRadius = 0.10f;
+            settings.kinematicSpeed = 2.0f;
+            settings.kinematicAmplitude = 0.35f;
+        }
+
+        if (scenario == 2) {
+            settings.containerBox.enabled = 1;
+            settings.containerBox.minBounds = {-0.6f, 0.0f, -0.6f};
+            settings.containerBox.maxBounds = {0.6f, 1.2f, 0.6f};
+        } else if (scenario == 4) {
+            settings.materials[0].cohesion = config.cohesion > 0.0f ? config.cohesion : 60.0f;
+            settings.materials[0].cohesionRuptureRatio = 0.15f;
+        }
     }
 
     const uint32_t count = std::min(config.capacity, 500000u);
@@ -346,9 +366,6 @@ void applySandScenario(ParticleSystem& system, int scenario, const ViewerConfig&
         break;
     }
     case 2: { // Conical Funnel
-        settings.containerBox.enabled = 1;
-        settings.containerBox.minBounds = {-0.6f, 0.0f, -0.6f};
-        settings.containerBox.maxBounds = {0.6f, 1.2f, 0.6f};
         system.setGranularSettings(settings);
         system.spawnGranularFunnel({0.0f, 0.4f, 0.0f}, count, 0.25f, 0.04f, 0.5f, 0.10f);
         break;
@@ -359,8 +376,6 @@ void applySandScenario(ParticleSystem& system, int scenario, const ViewerConfig&
         break;
     }
     case 4: { // Damp Sand Cliff
-        settings.materials[0].cohesion = config.cohesion > 0.0f ? config.cohesion : 60.0f;
-        settings.materials[0].cohesionRuptureRatio = 0.15f;
         system.setGranularSettings(settings);
         system.spawnGranularCliff({0.0f, 0.0f, 0.0f}, count, 0.02f, 0.12f);
         break;
@@ -380,6 +395,7 @@ void applySandScenario(ParticleSystem& system, int scenario, const ViewerConfig&
         break;
     }
     default:
+        system.setGranularSettings(settings);
         break;
     }
 }
@@ -543,6 +559,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Initialize 3D Wireframe Collider Renderer
+    if (!g_app.colliderRenderer.init()) {
+        std::cerr << "Failed to initialize Collider Renderer" << std::endl;
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+
     // Initialize Offscreen Viewport Framebuffer
     if (!g_app.fbo.init(g_app.vpWidth, g_app.vpHeight)) {
         std::cerr << "Failed to initialize Viewport Framebuffer" << std::endl;
@@ -634,24 +658,40 @@ int main(int argc, char** argv) {
         }
 
         // 2. Scenario Switch or Reset Requests
-        if (g_app.state.scenarioSwitchRequested || g_app.state.resetRequested) {
+        if (g_app.state.scenarioSwitchRequested) {
             applySandScenario(system, g_app.state.currentScenarioIndex, g_app.config,
-                              g_app.state.granularSettings.kinematicColliderEnabled != 0);
+                              g_app.state.granularSettings.kinematicColliderEnabled != 0, nullptr);
             g_app.state.granularSettings = system.granularSettings();
             g_app.state.scenarioSwitchRequested = false;
             g_app.state.resetRequested = false;
+            g_app.state.currentFrame = 0;
+        } else if (g_app.state.resetRequested) {
+            // User hit Reset or timeline looped: PRESERVE user's custom tweaked sliders!
+            applySandScenario(system, g_app.state.currentScenarioIndex, g_app.config,
+                              g_app.state.granularSettings.kinematicColliderEnabled != 0, &g_app.state.granularSettings);
+            g_app.state.resetRequested = false;
+            g_app.state.currentFrame = 0;
         }
 
-        // 3. Export Telemetry Request
+        // 3. Wake Grains Request (Re-activates settled/sleeping sand immediately)
+        if (g_app.state.wakeGrainsRequested) {
+            const auto& pool = system.granularBuffers();
+            if (pool.flags && pool.aliveCount > 0) {
+                cudaMemset(pool.flags, 0, sizeof(uint16_t) * pool.aliveCount);
+            }
+            g_app.state.wakeGrainsRequested = false;
+        }
+
+        // 4. Export Telemetry Request
         if (g_app.state.exportBenchmarkRequested) {
             exportTelemetryToCsv(g_app.state);
             g_app.state.exportBenchmarkRequested = false;
         }
 
-        // 4. Sync live parameters from Inspector to CUDA ParticleSystem
+        // 5. Sync live parameters from Inspector to CUDA ParticleSystem
         system.setGranularSettings(g_app.state.granularSettings);
 
-        // 5. Physical simulation step
+        // 6. Physical simulation step
         float simMs = 0.0f;
         if (g_app.state.isPlaying || g_app.state.stepRequest != 0) {
             auto simStart = std::chrono::high_resolution_clock::now();
@@ -674,7 +714,7 @@ int main(int argc, char** argv) {
             g_app.state.stepRequest = 0;
         }
 
-        // 6. Query GPU Simulation Telemetry
+        // 7. Query GPU Simulation Telemetry
         const auto& gStats = system.granularStats();
         g_app.state.liveAliveGrains = gStats.aliveCount;
         g_app.state.liveAsleepGrains = gStats.asleepCount;
@@ -685,13 +725,13 @@ int main(int argc, char** argv) {
         g_app.state.liveKineticEnergy = gStats.kineticEnergy;
         g_app.state.liveVboMemoryBytes = vboBytes;
 
-        // 7. Gather into OpenGL VBO via CUDA-GL Bridge
+        // 8. Gather into OpenGL VBO via CUDA-GL Bridge
         auto gatherStart = std::chrono::high_resolution_clock::now();
         bridge.gatherGranular(system.granularBuffers(), g_app.state.sandColorMode, g_app.state.velocityRangeMax, 1.0f);
         auto gatherEnd = std::chrono::high_resolution_clock::now();
         float gatherMs = std::chrono::duration<float, std::milli>(gatherEnd - gatherStart).count();
 
-        // 8. Render 3D Scene into Viewport Offscreen FBO
+        // 9. Render 3D Scene into Viewport Offscreen FBO
         auto renderStart = std::chrono::high_resolution_clock::now();
         if (g_app.vpWidth > 0 && g_app.vpHeight > 0) {
             g_app.fbo.resize(g_app.vpWidth, g_app.vpHeight);
@@ -710,12 +750,12 @@ int main(int argc, char** argv) {
         Mat4 proj = g_app.camera.projectionMatrix(aspect);
         Vec3 eye  = g_app.camera.eyePosition();
 
-        // 8a. Infinite Ground Grid
+        // 9a. Infinite Ground Grid
         if (g_app.state.showInfiniteGrid) {
             g_app.grid.draw(view, proj, eye);
         }
 
-        // 8b. Granular Particles with Physical Perspective & Decoupled Display Scale
+        // 9b. Granular Particles with Physical Perspective & Decoupled Display Scale
         if (g_app.state.showParticles) {
             Mat4 vp = proj * view;
             shader.use();
@@ -732,6 +772,35 @@ int main(int argc, char** argv) {
             glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer);
             glDrawArraysIndirect(GL_POINTS, reinterpret_cast<const void*>(0));
             glBindVertexArray(0);
+        }
+
+        // 9c. 3D Wireframe Colliders & Emitters
+        if (g_app.state.showColliders) {
+            Mat4 vp = proj * view;
+            // Obstacle Sphere (draw when enabled or selected)
+            if (g_app.state.granularSettings.obstacleSphere.enabled || g_app.state.selectedType == SelectedEntityType::ColliderObstacleSphere) {
+                float col[4] = {0.961f, 0.620f, 0.043f, 0.90f}; // Amber Gold
+                float r = g_app.state.granularSettings.obstacleSphere.radius;
+                if (r <= 0.001f) r = 0.15f;
+                g_app.colliderRenderer.drawSphere(vp, g_app.state.granularSettings.obstacleSphere.center, r, col);
+            }
+            // Kinematic Moving Plow
+            if (g_app.state.granularSettings.kinematicColliderEnabled) {
+                float col[4] = {0.055f, 0.647f, 0.812f, 0.90f}; // Active Cyan
+                g_app.colliderRenderer.drawSphere(vp, g_app.state.granularSettings.obstacleSphere.center,
+                                                  g_app.state.granularSettings.kinematicRadius, col);
+            }
+            // Container Box
+            if (g_app.state.granularSettings.containerBox.enabled) {
+                float col[4] = {0.4f, 0.6f, 0.9f, 0.70f};
+                g_app.colliderRenderer.drawBox(vp, g_app.state.granularSettings.containerBox.minBounds,
+                                               g_app.state.granularSettings.containerBox.maxBounds, col);
+            }
+            // Emitter Ring
+            if (g_app.state.showEmitters && g_app.state.selectedType == SelectedEntityType::Emitter) {
+                float col[4] = {0.2f, 0.8f, 0.4f, 0.90f}; // Emerald Green
+                g_app.colliderRenderer.drawCircle(vp, g_app.state.emitterPosition, 0.15f, col);
+            }
         }
 
         g_app.fbo.unbind();

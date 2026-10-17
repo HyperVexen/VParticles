@@ -53,7 +53,7 @@ struct RollingMetrics {
 
 struct StudioState {
     // --- Selection State ---
-    SelectedEntityType selectedType = SelectedEntityType::ColliderMovingPlow;
+    SelectedEntityType selectedType = SelectedEntityType::ColliderObstacleSphere;
     int selectedIndex = 0;
 
     // --- Gizmo Configuration ---
@@ -67,11 +67,12 @@ struct StudioState {
     // --- Timeline & Transport State ---
     bool isPlaying = true;
     uint32_t currentFrame = 0;
-    uint32_t maxFrames = 300;
+    uint32_t maxFrames = 1200;
     int targetFpsMode = 3; // 0: 24, 1: 30, 2: 60, 3: 120, 4: Free/Unlocked
-    bool isLooping = true;
+    bool isLooping = false; // Real-time continuous simulation by default
     int stepRequest = 0;   // +1 step forward, -1 step backward
     bool resetRequested = false;
+    bool wakeGrainsRequested = false;
     float timeScale = 1.0f;
 
     // --- Viewport Display & Shading ---

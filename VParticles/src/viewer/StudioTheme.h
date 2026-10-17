@@ -10,8 +10,11 @@ inline void setupStudioFonts(ImGuiIO& io) {
     config.OversampleV = 2;
     config.PixelSnapH = true;
 
-    // Attempt to load clean Segoe UI system font on Windows
+    // Prioritize high-end technical engineering fonts: Bahnschrift (DIN 1451) -> Segoe UI Semibold -> Segoe UI
     const char* fontPaths[] = {
+        "C:\\Windows\\Fonts\\bahnschrift.ttf",
+        "C:\\Windows\\Fonts\\segoeuisb.ttf",
+        "C:\\Windows\\Fonts\\segoeuib.ttf",
         "C:\\Windows\\Fonts\\segoeui.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
         nullptr
@@ -22,7 +25,7 @@ inline void setupStudioFonts(ImGuiIO& io) {
         FILE* f = fopen(fontPaths[i], "rb");
         if (f) {
             fclose(f);
-            io.Fonts->AddFontFromFileTTF(fontPaths[i], 15.0f, &config);
+            io.Fonts->AddFontFromFileTTF(fontPaths[i], 16.5f, &config);
             fontLoaded = true;
             break;
         }

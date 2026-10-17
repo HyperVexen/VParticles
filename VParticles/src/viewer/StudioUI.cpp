@@ -317,31 +317,63 @@ void StudioUI::renderViewportPanel(StudioState& state, StudioCamera& camera, GLu
         Mat4 view = camera.viewMatrix();
         Mat4 proj = camera.projectionMatrix(static_cast<float>(outVpWidth) / static_cast<float>(outVpHeight));
 
-        float matrix[16] = {
-            1.0f, 0.0f, 0.0f, 0.0f,
-            0.0f, 1.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 1.0f, 0.0f,
-            0.0f, 0.0f, 0.0f, 1.0f
-        };
-
+        float matrix[16] = {0.0f};
+        float translation[3] = {0.0f, 0.0f, 0.0f};
+        float rotation[3]    = {0.0f, 0.0f, 0.0f};
+        float scale[3]       = {1.0f, 1.0f, 1.0f};
         bool hasTransformTarget = false;
-        Float3* targetPos = nullptr;
 
-        if (state.selectedType == SelectedEntityType::ColliderMovingPlow) {
+        Float3* targetPos = nullptr;
+        Float3* targetRot = nullptr;
+        Float3* targetScale = nullptr;
+        float*  targetRadius = nullptr;
+
+        if (state.selectedType == SelectedEntityType::ColliderObstacleSphere) {
+            targetPos = &state.granularSettings.obstacleSphere.center;
+            targetRadius = &state.granularSettings.obstacleSphere.radius;
+            state.granularSettings.obstacleSphere.enabled = 1;
+            if (*targetRadius <= 0.001f) *targetRadius = 0.15f;
+            translation[0] = targetPos->x;
+            translation[1] = targetPos->y;
+            translation[2] = targetPos->z;
+            scale[0] = scale[1] = scale[2] = *targetRadius / 0.15f;
+            hasTransformTarget = true;
+        } else if (state.selectedType == SelectedEntityType::ColliderMovingPlow) {
             targetPos = &state.granularSettings.kinematicOrigin;
+            state.granularSettings.kinematicColliderEnabled = 1;
+            translation[0] = targetPos->x;
+            translation[1] = targetPos->y;
+            translation[2] = targetPos->z;
             hasTransformTarget = true;
         } else if (state.selectedType == SelectedEntityType::Emitter) {
             targetPos = &state.emitterPosition;
+            targetRot = &state.emitterRotation;
+            targetScale = &state.emitterScale;
+            translation[0] = targetPos->x;
+            translation[1] = targetPos->y;
+            translation[2] = targetPos->z;
+            rotation[0] = targetRot->x;
+            rotation[1] = targetRot->y;
+            rotation[2] = targetRot->z;
+            scale[0] = targetScale->x;
+            scale[1] = targetScale->y;
+            scale[2] = targetScale->z;
             hasTransformTarget = true;
-        } else if (state.selectedType == SelectedEntityType::ColliderObstacleSphere) {
-            targetPos = &state.granularSettings.obstacleSphere.center;
+        } else if (state.selectedType == SelectedEntityType::ColliderContainerBox) {
+            targetPos = nullptr;
+            Float3 center = {
+                (state.granularSettings.containerBox.minBounds.x + state.granularSettings.containerBox.maxBounds.x) * 0.5f,
+                (state.granularSettings.containerBox.minBounds.y + state.granularSettings.containerBox.maxBounds.y) * 0.5f,
+                (state.granularSettings.containerBox.minBounds.z + state.granularSettings.containerBox.maxBounds.z) * 0.5f,
+            };
+            translation[0] = center.x;
+            translation[1] = center.y;
+            translation[2] = center.z;
             hasTransformTarget = true;
         }
 
-        if (hasTransformTarget && targetPos) {
-            matrix[12] = targetPos->x;
-            matrix[13] = targetPos->y;
-            matrix[14] = targetPos->z;
+        if (hasTransformTarget) {
+            ImGuizmo::RecomposeMatrixFromComponents(translation, rotation, scale, matrix);
 
             float snapValues[3] = {state.snapTranslation, state.snapTranslation, state.snapTranslation};
             if (state.currentGizmoOperation == ImGuizmo::ROTATE) {
@@ -356,44 +388,71 @@ void StudioUI::renderViewportPanel(StudioState& state, StudioCamera& camera, GLu
 
             if (ImGuizmo::IsUsing()) {
                 isUsingGizmo_ = true;
-                targetPos->x = matrix[12];
-                targetPos->y = matrix[13];
-                targetPos->z = matrix[14];
+                float newTrans[3] = {0.0f}, newRot[3] = {0.0f}, newScale[3] = {1.0f, 1.0f, 1.0f};
+                ImGuizmo::DecomposeMatrixToComponents(matrix, newTrans, newRot, newScale);
+
+                if (targetPos) {
+                    targetPos->x = newTrans[0];
+                    targetPos->y = newTrans[1];
+                    targetPos->z = newTrans[2];
+                }
+                if (targetRot) {
+                    targetRot->x = newRot[0];
+                    targetRot->y = newRot[1];
+                    targetRot->z = newRot[2];
+                }
+                if (targetScale) {
+                    targetScale->x = newScale[0];
+                    targetScale->y = newScale[1];
+                    targetScale->z = newScale[2];
+                }
+                if (targetRadius) {
+                    *targetRadius = 0.15f * fmaxf(0.05f, newScale[0]);
+                }
             }
         }
     }
 
     // 4. Overlaid Viewport Toolbars
-    // --- Top-Left Toolbar: Gizmo Mode & Snapping Pill ---
+    // --- Unified Floating Header Toolbar (Gizmo + Mode + Shading + Particle Scale + Quick Actions) ---
     {
+        float tbWidth = std::min(viewportPanelSize.x - 145.0f, 950.0f);
+        if (tbWidth < 300.0f) tbWidth = 300.0f;
+
         ImGui::SetCursorScreenPos(ImVec2(vpMin.x + 12.0f, vpMin.y + 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.88f));
-        ImGui::BeginChild("VpToolbarLeft", ImVec2(380.0f, 36.0f), true, ImGuiWindowFlags_NoScrollbar);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 5.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(7.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.0f, 4.0f));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.92f));
+
+        ImGui::BeginChild("VpUnifiedToolbar", ImVec2(tbWidth, 42.0f), true,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         if (ImGui::IsWindowHovered()) anyToolbarHovered_ = true;
 
+        // Gizmo mode buttons
         bool isTrans = (state.currentGizmoOperation == ImGuizmo::TRANSLATE);
         bool isRot   = (state.currentGizmoOperation == ImGuizmo::ROTATE);
         bool isScale = (state.currentGizmoOperation == ImGuizmo::SCALE);
         bool isNone  = (state.currentGizmoOperation == static_cast<ImGuizmo::OPERATION>(0));
 
-        if (isTrans) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.7f));
-        if (ImGui::Button(" W Move ")) state.currentGizmoOperation = ImGuizmo::TRANSLATE;
+        if (isTrans) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.8f));
+        if (ImGui::Button("W Move")) state.currentGizmoOperation = ImGuizmo::TRANSLATE;
         if (isTrans) ImGui::PopStyleColor();
 
         ImGui::SameLine();
-        if (isRot) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.7f));
-        if (ImGui::Button(" E Rotate ")) state.currentGizmoOperation = ImGuizmo::ROTATE;
+        if (isRot) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.8f));
+        if (ImGui::Button("E Rotate")) state.currentGizmoOperation = ImGuizmo::ROTATE;
         if (isRot) ImGui::PopStyleColor();
 
         ImGui::SameLine();
-        if (isScale) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.7f));
-        if (ImGui::Button(" R Scale ")) state.currentGizmoOperation = ImGuizmo::SCALE;
+        if (isScale) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.8f));
+        if (ImGui::Button("R Scale")) state.currentGizmoOperation = ImGuizmo::SCALE;
         if (isScale) ImGui::PopStyleColor();
 
         ImGui::SameLine();
-        if (isNone) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.7f));
-        if (ImGui::Button(" Q View ")) state.currentGizmoOperation = static_cast<ImGuizmo::OPERATION>(0);
+        if (isNone) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.8f));
+        if (ImGui::Button("Q View")) state.currentGizmoOperation = static_cast<ImGuizmo::OPERATION>(0);
         if (isNone) ImGui::PopStyleColor();
 
         ImGui::SameLine();
@@ -406,46 +465,37 @@ void StudioUI::renderViewportPanel(StudioState& state, StudioCamera& camera, GLu
         }
 
         ImGui::SameLine();
-        if (state.useSnap) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.961f, 0.620f, 0.043f, 0.7f));
+        if (state.useSnap) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.961f, 0.620f, 0.043f, 0.8f));
         if (ImGui::Button("Snap")) state.useSnap = !state.useSnap;
         if (state.useSnap) ImGui::PopStyleColor();
 
-        ImGui::EndChild();
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
-    }
+        ImGui::SameLine();
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+        ImGui::SameLine();
 
-    // --- Top-Center Toolbar: Shading, Render Style & Particle Display Scale ---
-    {
-        float centerWidth = 530.0f;
-        ImGui::SetCursorScreenPos(ImVec2(vpMin.x + (viewportPanelSize.x - centerWidth) * 0.5f, vpMin.y + 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.88f));
-        ImGui::BeginChild("VpToolbarCenter", ImVec2(centerWidth, 36.0f), true, ImGuiWindowFlags_NoScrollbar);
-        if (ImGui::IsWindowHovered()) anyToolbarHovered_ = true;
-
+        // Shading Colormaps
         bool mode0 = (state.sandColorMode == 0);
         bool mode1 = (state.sandColorMode == 1);
         bool mode2 = (state.sandColorMode == 2);
         bool mode3 = (state.sandColorMode == 3);
 
-        if (mode0) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.961f, 0.620f, 0.043f, 0.75f));
-        if (ImGui::Button(" Tint ")) state.sandColorMode = 0;
+        if (mode0) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.961f, 0.620f, 0.043f, 0.85f));
+        if (ImGui::Button("Tint")) state.sandColorMode = 0;
         if (mode0) ImGui::PopStyleColor();
 
         ImGui::SameLine();
-        if (mode1) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.90f, 0.25f, 0.25f, 0.75f));
-        if (ImGui::Button(" Velocity ")) state.sandColorMode = 1;
+        if (mode1) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.90f, 0.25f, 0.25f, 0.85f));
+        if (ImGui::Button("Velocity")) state.sandColorMode = 1;
         if (mode1) ImGui::PopStyleColor();
 
         ImGui::SameLine();
-        if (mode2) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.75f));
-        if (ImGui::Button(" Sleeping ")) state.sandColorMode = 2;
+        if (mode2) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.85f));
+        if (ImGui::Button("Sleeping")) state.sandColorMode = 2;
         if (mode2) ImGui::PopStyleColor();
 
         ImGui::SameLine();
-        if (mode3) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.60f, 0.25f, 0.85f, 0.75f));
-        if (ImGui::Button(" Height ")) state.sandColorMode = 3;
+        if (mode3) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.60f, 0.25f, 0.85f, 0.85f));
+        if (ImGui::Button("Height")) state.sandColorMode = 3;
         if (mode3) ImGui::PopStyleColor();
 
         ImGui::SameLine();
@@ -454,18 +504,30 @@ void StudioUI::renderViewportPanel(StudioState& state, StudioCamera& camera, GLu
 
         // Render Style dropdown
         const char* styles[] = {"Sphere", "Disc", "Wire"};
-        ImGui::SetNextItemWidth(75.0f);
+        ImGui::SetNextItemWidth(78.0f);
         ImGui::Combo("##Style", &state.renderStyle, styles, 3);
 
         ImGui::SameLine();
         ImGui::Text("Scale:");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(70.0f);
+        ImGui::SetNextItemWidth(68.0f);
         ImGui::SliderFloat("##DisplayScale", &state.displayScale, 0.1f, 3.0f, "%.2fx");
+
+        ImGui::SameLine();
+        ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+        ImGui::SameLine();
+
+        // Quick Wake Up Button
+        if (ImGui::Button("Wake Grains")) {
+            state.wakeGrainsRequested = true;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Wake up all sleeping grains so they react to updated physics");
+        }
 
         ImGui::EndChild();
         ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(4);
     }
 
     // --- Top-Right Toolbar: Viewport Orientation Widget & Projection Mode ---
@@ -476,26 +538,31 @@ void StudioUI::renderViewportPanel(StudioState& state, StudioCamera& camera, GLu
         ImGuizmo::ViewManipulate(view.data(), camDist, viewManipPos, ImVec2(108, 108), 0x14141680);
 
         // Camera mode pills below view manipulator
-        ImGui::SetCursorScreenPos(ImVec2(vpMin.x + viewportPanelSize.x - 125.0f, vpMin.y + 126.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.85f));
-        ImGui::BeginChild("VpCameraPills", ImVec2(118.0f, 32.0f), true, ImGuiWindowFlags_NoScrollbar);
+        ImGui::SetCursorScreenPos(ImVec2(vpMin.x + viewportPanelSize.x - 126.0f, vpMin.y + 126.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.09f, 0.11f, 0.90f));
+
+        ImGui::BeginChild("VpCameraPills", ImVec2(120.0f, 38.0f), true,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         if (ImGui::IsWindowHovered()) anyToolbarHovered_ = true;
 
         bool isOrtho = camera.isOrthographic();
-        if (ImGui::Button(isOrtho ? " Ortho " : " Persp ")) {
+        if (ImGui::Button(isOrtho ? "Ortho" : "Persp")) {
             camera.toggleOrthographic();
         }
         ImGui::SameLine();
-        if (state.isMaximizedViewport) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.7f));
-        if (ImGui::Button(state.isMaximizedViewport ? " Rest " : " Max ")) {
+        if (state.isMaximizedViewport) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.055f, 0.647f, 0.812f, 0.8f));
+        if (ImGui::Button(state.isMaximizedViewport ? "Rest" : "Max")) {
             state.isMaximizedViewport = !state.isMaximizedViewport;
         }
         if (state.isMaximizedViewport) ImGui::PopStyleColor();
 
         ImGui::EndChild();
         ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(4);
     }
 
     // --- Colormap Legend Overlay (Velocity or Height mode) ---
